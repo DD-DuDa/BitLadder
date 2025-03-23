@@ -43,3 +43,7 @@ python setup.py install
 
 ## Citation
 If you find BitDecoding useful or want to use in your projects, please kindly cite our paper:
+
+
+## Acknowledgement
+BitDecoding is inspired by many open-source libraries, including (but not limited to) [flash-attention](https://github.com/Dao-AILab/flash-attention/tree/main), [flute](https://github.com/HanGuo97/flute), [Atom](https://github.com/efeslab/Atom), [omniserve](https://github.com/mit-han-lab/omniserve).
