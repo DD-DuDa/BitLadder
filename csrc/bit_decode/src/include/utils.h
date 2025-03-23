@@ -261,19 +261,24 @@ __forceinline__ __device__ void gemm_Kchannel(Tensor0 &acc, Tensor1 &tCrA,
     Tensor tCrA_copy_view = smem_thr_copy_A.retile_D(tCrA);
     CUTE_STATIC_ASSERT_V(size<1>(tCsA) == size<1>(tCrA_copy_view));            // M
     Tensor tCrB_i4_copy_view = smem_thr_copy_B_i4.retile_D(tCrB_i4);
+
+    #pragma unroll
+    for (int i = 0; i < size<2>(tCrA); ++i) {
+        quant::load_params_Kchannel(tCrB_scales, tCrB_zeros, sK_params, threadIdx.x, i, num_params);
+    }
+
     if (!A_in_regs) { cute::copy(smem_tiled_copy_A, tCsA(_, _, _0{}), tCrA_copy_view(_, _, _0{})); }
     if (!B_in_regs) { 
         cute::copy(smem_tiled_copy_B_i4, tCsB_i4(_, _, _0{}), tCrB_i4_copy_view(_, _, _0{}));
-        quant::load_params_Kchannel(tCrB_scales, tCrB_zeros, sK_params, threadIdx.x, 0, num_params);
         quant::dequant_Kchannel_Vtensor<num_bits>(tCrB_i4(_,_,_0{}), tCrB_dequant(_,_,_0{}), tCrB_scales(_,_,_0{}), tCrB_zeros(_,_,_0{}), num_params);
     }
+
     #pragma unroll
     for (int i = 0; i < size<2>(tCrA); ++i) {
         if (i < size<2>(tCrA) - 1) {
             if (!A_in_regs) { cute::copy(smem_tiled_copy_A, tCsA(_, _, i + 1), tCrA_copy_view(_, _, i + 1)); }
             if (!B_in_regs) { 
                 cute::copy(smem_tiled_copy_B_i4, tCsB_i4(_, _, i + 1), tCrB_i4_copy_view(_, _, i + 1));
-                quant::load_params_Kchannel(tCrB_scales, tCrB_zeros, sK_params, threadIdx.x, i + 1, num_params);
                 quant::dequant_Kchannel_Vtensor<num_bits>(tCrB_i4(_, _, i + 1), tCrB_dequant(_, _, i + 1), tCrB_scales(_, _, i + 1), tCrB_zeros(_, _, i + 1), num_params);
             }
         }

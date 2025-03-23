@@ -33,7 +33,7 @@ void TestDecodingKernelCorrectness(int seqlen_kv, const std::string& quant_mode,
     at::Tensor k_pack, k_params, v_pack, v_params;
     if (quant_mode == "k-channel") {
         k_pack   = torch::empty({bs, seqlen_kv / pack_nums,   num_heads_kv, head_dim}, torch::dtype(torch::kUInt16)).to(torch::kCUDA);
-        k_params = torch::empty({bs, head_dim, num_heads_kv, seqlen_kv / group_size}, torch::dtype(torch::kFloat32)).to(torch::kCUDA);
+        k_params = torch::empty({bs, seqlen_kv / group_size, num_heads_kv, head_dim}, torch::dtype(torch::kFloat32)).to(torch::kCUDA);
     } else {
         k_pack   = torch::empty({bs, seqlen_kv, num_heads_kv, head_dim / pack_nums}, torch::dtype(torch::kUInt16)).to(torch::kCUDA);
         k_params = torch::empty({bs, head_dim / group_size, num_heads_kv, seqlen_kv}, torch::dtype(torch::kFloat32)).to(torch::kCUDA);

@@ -19,35 +19,35 @@
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
 
 void set_params_fprop(Flash_fwd_params &params,
-                      // sizes
-                      const size_t b,
-                      const size_t seqlen_q,
-                      const size_t seqlen_k,
-                      const size_t seqlen_q_rounded,
-                      const size_t seqlen_k_rounded,
-                      const size_t h,
-                      const size_t h_k,
-                      const size_t d,
-                      const size_t d_rounded,
-                      // device pointers
-                      const at::Tensor q,
-                      const at::Tensor k, const at::Tensor k_pack, const at::Tensor k_params,
-                      const at::Tensor v, const at::Tensor v_pack, const at::Tensor v_params,
-                      at::Tensor out,
-                      void *cu_seqlens_q_d,
-                      void *cu_seqlens_k_d,
-                      void *seqused_k,
-                      void *p_d,
-                      void *softmax_lse_d,
-                      float p_dropout,
-                      float softmax_scale,
-                      int window_size_left,
-                      int window_size_right,
-                      const float softcap,
-                      const std::string quant_mode,
-                      const int group_size,
-                      bool seqlenq_ngroups_swapped=false,
-                      const bool unpadded_lse=false) {
+    // sizes
+    const size_t b,
+    const size_t seqlen_q,
+    const size_t seqlen_k,
+    const size_t seqlen_q_rounded,
+    const size_t seqlen_k_rounded,
+    const size_t h,
+    const size_t h_k,
+    const size_t d,
+    const size_t d_rounded,
+    // device pointers
+    const at::Tensor q,
+    const at::Tensor k, const at::Tensor k_pack, const at::Tensor k_params,
+    const at::Tensor v, const at::Tensor v_pack, const at::Tensor v_params,
+    at::Tensor out,
+    void *cu_seqlens_q_d,
+    void *cu_seqlens_k_d,
+    void *seqused_k,
+    void *p_d,
+    void *softmax_lse_d,
+    float p_dropout,
+    float softmax_scale,
+    int window_size_left,
+    int window_size_right,
+    const float softcap,
+    const std::string quant_mode,
+    const int group_size,
+    bool seqlenq_ngroups_swapped=false,
+    const bool unpadded_lse=false) {
 
     // Reset the parameters
     params = {};
@@ -67,12 +67,12 @@ void set_params_fprop(Flash_fwd_params &params,
     params.q_row_stride = q.stride(-3);
     // params.k_row_stride = k.stride(-3);
     params.K_pack_row_stride = k_pack.stride(-3);
-    params.k_params_row_stride = k_params.stride(-1);
+    params.k_params_row_stride = k_params.stride(-3);
     // params.v_row_stride = v.stride(-3);
     params.v_pack_row_stride = v_pack.stride(-3);
     params.v_params_row_stride = v_params.stride(-1);
 
-    params.k_params_dim_stride = k_params.stride(-3);
+    params.k_params_dim_stride = k_params.stride(-1);
     params.v_params_dim_stride = v_params.stride(-3);
 
     params.q_head_stride = q.stride(-2);
@@ -88,19 +88,19 @@ void set_params_fprop(Flash_fwd_params &params,
     params.o_head_stride = out.stride(-2);
 
     if (cu_seqlens_q_d == nullptr) {
-        params.q_batch_stride = q.stride(0);
-        // params.k_batch_stride = k.stride(0);
-        params.K_pack_batch_stride = k_pack.stride(0);
-        params.k_params_batch_stride = k_params.stride(0);
-        // params.v_batch_stride = v.stride(0);
-        params.v_pack_batch_stride = v_pack.stride(0);
-        params.v_params_batch_stride = v_params.stride(0);
-        params.o_batch_stride = out.stride(0);
+    params.q_batch_stride = q.stride(0);
+    // params.k_batch_stride = k.stride(0);
+    params.K_pack_batch_stride = k_pack.stride(0);
+    params.k_params_batch_stride = k_params.stride(0);
+    // params.v_batch_stride = v.stride(0);
+    params.v_pack_batch_stride = v_pack.stride(0);
+    params.v_params_batch_stride = v_params.stride(0);
+    params.o_batch_stride = out.stride(0);
 
-        if (seqlenq_ngroups_swapped) {
-             params.q_batch_stride *= seqlen_q;
-             params.o_batch_stride *= seqlen_q;
-        }
+    if (seqlenq_ngroups_swapped) {
+    params.q_batch_stride *= seqlen_q;
+    params.o_batch_stride *= seqlen_q;
+    }
     }
 
     params.cu_seqlens_q = static_cast<int *>(cu_seqlens_q_d);
@@ -127,17 +127,17 @@ void set_params_fprop(Flash_fwd_params &params,
 
     // Set the different scale values.
     #ifdef FLASHATTENTION_DISABLE_SOFTCAP
-        TORCH_CHECK(softcap <= 0.0, "This flash attention build does not support softcap.");
+    TORCH_CHECK(softcap <= 0.0, "This flash attention build does not support softcap.");
     #endif
     if (softcap > 0.0) {
-        params.softcap = softmax_scale / softcap;
-        params.scale_softmax = softcap;
-        params.scale_softmax_log2 = softcap * M_LOG2E;
+    params.softcap = softmax_scale / softcap;
+    params.scale_softmax = softcap;
+    params.scale_softmax_log2 = softcap * M_LOG2E;
     } else{
-        // Remove potential NaN
-        params.softcap = 0.0;
-        params.scale_softmax = softmax_scale;
-        params.scale_softmax_log2 = softmax_scale * M_LOG2E;
+    // Remove potential NaN
+    params.softcap = 0.0;
+    params.scale_softmax = softmax_scale;
+    params.scale_softmax_log2 = softmax_scale * M_LOG2E;
     }
 
     // Set this to probability of keeping an element to simplify things.
@@ -151,7 +151,7 @@ void set_params_fprop(Flash_fwd_params &params,
     params.scale_softmax_rp_dropout = params.rp_dropout * params.scale_softmax;
     TORCH_CHECK(p_dropout < 1.f);
     #ifdef FLASHATTENTION_DISABLE_DROPOUT
-        TORCH_CHECK(p_dropout == 0.0f, "This flash attention build does not support dropout.");
+    TORCH_CHECK(p_dropout == 0.0f, "This flash attention build does not support dropout.");
     #endif
 
     // Causal is the special case where window_size_right == 0 and window_size_left < 0.
@@ -164,14 +164,14 @@ void set_params_fprop(Flash_fwd_params &params,
     params.window_size_right = window_size_right;
 
     #ifdef FLASHATTENTION_DISABLE_LOCAL
-        TORCH_CHECK(params.is_causal || (window_size_left < 0 && window_size_right < 0),
-            "This flash attention build does not support local attention.");
+    TORCH_CHECK(params.is_causal || (window_size_left < 0 && window_size_right < 0),
+    "This flash attention build does not support local attention.");
     #endif
 
     params.is_seqlens_k_cumulative = true;
 
     #ifdef FLASHATTENTION_DISABLE_UNEVEN_K
-        TORCH_CHECK(d == d_rounded, "This flash attention build does not support headdim not being a multiple of 32.");
+    TORCH_CHECK(d == d_rounded, "This flash attention build does not support headdim not being a multiple of 32.");
     #endif
 
     params.unpadded_lse = unpadded_lse;
@@ -446,18 +446,18 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void set_params_fprop_qpack(Flash_fwd_params &params,
-                            // sizes
-                            const size_t b,
-                            const size_t seqlen_k,
-                            const size_t h, const size_t h_k,
-                            const size_t d,
-                            // device pointers
-                            const at::Tensor k, at::Tensor k_pack, at::Tensor k_params,
-                            const at::Tensor v, at::Tensor v_pack, at::Tensor v_params,
-                            void *cu_seqlens_k_d,
-                            const std::string quant_mode,
-                            const int group_size
-                            ) {
+    // sizes
+    const size_t b,
+    const size_t seqlen_k,
+    const size_t h, const size_t h_k,
+    const size_t d,
+    // device pointers
+    const at::Tensor k, at::Tensor k_pack, at::Tensor k_params,
+    const at::Tensor v, at::Tensor v_pack, at::Tensor v_params,
+    void *cu_seqlens_k_d,
+    const std::string quant_mode,
+    const int group_size
+    ) {
 
     // Reset the parameters
     params = {};
@@ -474,12 +474,12 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
     // All stride are in elements, not bytes.
     params.k_row_stride = k.stride(-3);
     params.K_pack_row_stride = k_pack.stride(-3);
-    params.k_params_row_stride = k_params.stride(-1);
+    params.k_params_row_stride = k_params.stride(-3);
     params.v_row_stride = v.stride(-3);
     params.v_pack_row_stride = v_pack.stride(-3);
     params.v_params_row_stride = v_params.stride(-1);
 
-    params.k_params_dim_stride = k_params.stride(-3);
+    params.k_params_dim_stride = k_params.stride(-1);
     params.v_params_dim_stride = v_params.stride(-3);
 
     params.k_head_stride = k.stride(-2);

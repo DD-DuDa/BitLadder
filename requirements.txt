@@ -1,0 +1,7 @@
+torch
+numpy
+matplotlib
+pandas
+packaging
+ninja
+flash-attn

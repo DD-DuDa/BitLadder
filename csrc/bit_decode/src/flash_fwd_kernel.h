@@ -204,7 +204,7 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
                            make_stride(params.K_pack_row_stride, _1{}));
     Tensor gK_params = make_tensor(make_gmem_ptr(reinterpret_cast<__half2*>(params.k_params_ptr) + row_offset_k_params),
                            Shape<Int<kBlockK_params>, Int<kHeadDim_k_params>>{},
-                           make_stride(_1{}, params.k_params_dim_stride));
+                           make_stride(params.k_params_row_stride, _1{}));
 
     // V
     Tensor gV_pack   = make_tensor(make_gmem_ptr(reinterpret_cast<ElementKVPack*>(params.v_pack_ptr) + row_offset_v_pack),
@@ -365,88 +365,9 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
     //
 
     // Construct identity layout for sQ and sK
-    Tensor cQ  = make_identity_tensor(make_shape(size<0>(sQ), size<1>(sQ)));                         // (BLK_N,BLK_K) -> (blk_n,blk_k)
-    // Repeat the partitioning with identity layouts
+    Tensor cQ  = make_identity_tensor(make_shape(size<0>(sQ), size<1>(sQ)));        // (BLK_N,BLK_K) -> (blk_n,blk_k)
     Tensor tQcQ = gmem_thr_copy_QKV.partition_S(cQ);                                // (ACPY,ACPY_M,ACPY_K) -> (blk_m,blk_k)
-    // Allocate predicate tensors for k we assume is_even_k = true
     Tensor tQpQ = make_tensor<bool>(make_shape(size<2>(tQsQ)));
-
-    //////////////////////////////////////////////////////////////////////////////
-    // Test quantization
-    //////////////////////////////////////////////////////////////////////////////
-#define TEST_QUANTIZATION 0
-
-#if TEST_QUANTIZATION
-    cute::copy(gmem_tiled_copy_QKV, tKgK, tKsK);
-    cute::copy(gmem_tiled_copy_k_pack, tKgK_pack, tKsK_pack);
-    cute::copy(gmem_tiled_copy_k_params, tKgK_params, tKsK_params);
-    // // cute::copy(gmem_tiled_copy_QKV, tVgV, tVsV);
-    // // cute::copy(gmem_tiled_copy_v_pack, tVgV_pack, tVsV_pack);
-    // // cute::copy(gmem_tiled_copy_v_params, tVgV_params, tVsV_params);
-    cute::cp_async_fence();
-    flash::cp_async_wait<0>();                               
-    __syncthreads();
-
-    cute::copy(smem_tiled_copy_K, tSsK, tSrK_view);
-    cute::copy(smem_tiled_copy_K_pack, tSsK_pack, tSrK_pack_view);
-    // // cute::copy(smem_tiled_copy_V, tOsVt, tOrVt_view);
-    // // cute::copy(smem_tiled_copy_V_pack, tOsVt_pack, tOrVt_pack_view);
-
-    if (Kernel_traits::quant_mode == 1) {
-        for (int ii = 0; ii < size<2>(tSrK_dequant); ++ii) {
-            quant::load_params_Kchannel(tScales_k_h2_c, tZeros_k_h2_c, sK_params, tidx, ii, num_params);
-            quant::dequant_Kchannel_Vtensor<num_bits>(tSrK_pack(_,_,ii), tSrK_dequant(_,_,ii), tScales_k_h2_c(_,_,ii), tZeros_k_h2_c(_,_,ii), num_params);
-        }
-    } else {
-        quant::load_params_Ktensor(tScales_k_h2_g, tZeros_k_h2_g, sK_params, tidx, num_params);
-        __syncthreads();
-
-        for (int ii = 0; ii < size<2>(tSrK_dequant); ++ii) {
-            quant::dequantize_Ktensor(tSrK_pack, tSrK_dequant, tScales_k_h2_g, tZeros_k_h2_g, 4, group_size, ii);
-        }
-    }
-    
-    // // for (int ii = 0; ii < size<2>(tOrVt_dequant); ++ii) {
-    // //     quant::load_params_Vtensor<num_bits>(tScales_v_h2, tZeros_v_h2, sV_params, tidx, ii, num_params);
-    // //     quant::dequant_Kchannel_Vtensor<num_bits>(tOrVt_pack(_,_,ii), tOrVt_dequant(_,_,ii), tScales_v_h2(_,ii), tZeros_v_h2(_,ii), num_params);
-    // // }
-
-    #if DEBUG
-    if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0 && blockIdx.y == 1 && blockIdx.z == 0) {
-        printf("quant_mode: %d\n", Kernel_traits::quant_mode);
-        printf("num_params: %d\n", num_params);
-
-        // PRINT("sK", sK.layout());                          PRINTTENSOR("sK", sK);
-        // PRINT("gK_pack", gK_pack.layout());                   // PRINTTENSOR("gK_pack", gK_pack);
-        // PRINT("sK_pack", sK_pack.layout());                   // PRINTTENSOR("sK_pack", sK_pack);
-        // PRINT("gK_params", gK_params.layout());               // PRINTTENSOR("gK_params_f", gK_params_f);
-        // // PRINT("sK_params", sK_params.layout());            // PRINTTENSOR("sK_params_f", sK_params_f);
-        // PRINT("tScales_k_c", tScales_k_c.layout());           PRINTTENSOR("tScales_k_c", tScales_k_c(_,_,0));
-        // PRINT("tScales_k_h2_c", tScales_k_h2_c.layout());     // PRINTTENSOR("tScales_k_h2_c", tScales_k_h2_c);
-        // PRINT("tZeros_k_c", tZeros_k_c.layout());             PRINTTENSOR("tZeros_k_c", tZeros_k_c(_,_,0));
-        PRINT("tSrK", tSrK.layout());                         PRINTTENSOR("tSrK", tSrK(_,_,0));
-        PRINT("tSrK_pack", tSrK_pack.layout());               // PRINTTENSOR("tSrK_pack", tSrK_pack(_,_,0));
-        PRINT("tSrK_dequant", tSrK_dequant.layout());         PRINTTENSOR("tSrK_dequant", tSrK_dequant(_,_,0));
-        
-        // PRINT("sV", sV.layout());                             PRINTTENSOR("sV", sV);
-        // PRINT("gV_pack", gV_pack.layout());                   // PRINTTENSOR("gV_pack", gV_pack);
-        // PRINT("sV_pack", sV_pack.layout());                   // PRINTTENSOR("sV_pack", sV_pack);
-        // PRINT("gV_params", gV_params.layout());
-        // PRINT("sV_params", sV_params.layout());
-        // PRINT("tScales_v_c", tScales_v_c.layout());            PRINTTENSOR("tScales_v_c", tScales_v_c);
-        // PRINT("tZeros_v_c", tZeros_v_c.layout());              PRINTTENSOR("tZeros_v_c", tZeros_v_c);
-        // // PRINT("tScales_v_h2", tScales_v_h2.layout());
-        // // PRINT("tZeros_v_h2", tZeros_v_h2.layout());
-        // PRINT("tOrVt", tOrVt.layout());                        PRINTTENSOR("tOrVt", tOrVt);
-        // PRINT("tOrVt_pack", tOrVt_pack.layout());              // PRINTTENSOR("tOrVt_pack", tOrVt_pack);
-        // PRINT("tOrVt_dequant", tOrVt_dequant.layout());        PRINTTENSOR("tOrVt_dequant", tOrVt_dequant);
-    }
-    #endif
-
-#endif
-    //////////////////////////////////////////////////////////////////////////////
-    // Test quantization
-    //////////////////////////////////////////////////////////////////////////////
 
     // 
     // Start of the main loop
@@ -562,7 +483,6 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         if (n_block > n_block_min) {
             // Advance gK
             if (block_table == nullptr) {
-                // tKgK.data()          = tKgK.data() + (-int(kBlockN * params.k_row_stride));
                 tKgK_pack.data()     = tKgK_pack.data()     + (-int(kBlockP * params.K_pack_row_stride));
                 tKgK_params.data()   = tKgK_params.data()   + (-int(kBlockK_params * params.k_params_row_stride));
             } else {
@@ -572,11 +492,9 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
                 const int block_table_idx_next         = (n_block - 1) * kBlockN / params.page_block_size;
                 const int block_table_offset_next      = (n_block - 1) * kBlockN - block_table_idx_next * params.page_block_size;
                 const int block_table_offset_pack_next = (n_block - 1) * kBlockP - block_table_idx_next * params.page_block_size_pack;
-                // tKgK.data() = tKgK.data() + (block_table[block_table_idx_next] - block_table[block_table_idx_cur]) * params.k_batch_stride + (block_table_offset_next - block_table_offset_cur) * params.k_row_stride;
                 tKgK_pack.data()   = tKgK_pack.data()   + (block_table[block_table_idx_next] - block_table[block_table_idx_cur]) * params.K_pack_batch_stride + (block_table_offset_pack_next - block_table_offset_pack_cur) * params.K_pack_row_stride;
                 tKgK_params.data() = tKgK_params.data() + (-int(kBlockK_params * params.k_params_row_stride));
             }
-            // cute::copy(gmem_tiled_copy_QKV, tKgK, tKsK);
             cute::copy(gmem_tiled_copy_k_pack, tKgK_pack, tKsK_pack);
             cute::copy(gmem_tiled_copy_k_params, tKgK_params, tKsK_params);
             // This cp_async_fence needs to be in the if block, otherwise the synchronization
@@ -683,7 +601,6 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         if (n_block > n_block_min) {
             // Advance gK
             if (block_table == nullptr) {
-                // tKgK.data()          = tKgK.data() + (-int(kBlockN * params.k_row_stride));
                 tKgK_pack.data()       = tKgK_pack.data()     + (-int(kBlockP * params.K_pack_row_stride));
                 tKgK_params.data()     = tKgK_params.data()     + (-int(kBlockK_params * params.k_params_row_stride));
 
@@ -694,11 +611,9 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
                 const int block_table_idx_next         = (n_block - 1) * kBlockN / params.page_block_size;
                 const int block_table_offset_next      = (n_block - 1) * kBlockN - block_table_idx_next * params.page_block_size;
                 const int block_table_offset_pack_next = (n_block - 1) * kBlockP - block_table_idx_next * params.page_block_size_pack;
-                // tKgK.data()        = tKgK.data() + (block_table[block_table_idx_next] - block_table[block_table_idx_cur]) * params.k_batch_stride + (block_table_offset_next - block_table_offset_cur) * params.k_row_stride;
                 tKgK_pack.data()   = tKgK_pack.data() + (block_table[block_table_idx_next] - block_table[block_table_idx_cur]) * params.K_pack_batch_stride + (block_table_offset_pack_next - block_table_offset_pack_cur) * params.K_pack_row_stride;
                 tKgK_params.data() = tKgK_params.data() + (-int(kBlockK_params * params.k_params_row_stride));
             }
-            // cute::copy(gmem_tiled_copy_QKV, tKgK, tKsK);
             cute::copy(gmem_tiled_copy_k_pack, tKgK_pack, tKsK_pack);
             cute::copy(gmem_tiled_copy_k_params, tKgK_params, tKsK_params);
             // This cp_async_fence needs to be in the if block, otherwise the synchronization
