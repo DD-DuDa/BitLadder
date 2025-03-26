@@ -4,7 +4,7 @@
 
 BitDecoding is a high-performance, GPU-optimized system
 designed to accelerate long-context LLMs decoding with a low-bit KV
-cache. Acheive more than **3-8x speedup** than Flash Attention v2.
+cache. Achieve **3-9x speedup** than Flash Attention v2.
 ![overview](imgs/overview.png)
 ![scheme](imgs/scheme.png)
 
