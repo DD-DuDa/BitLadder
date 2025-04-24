@@ -893,7 +893,7 @@ inline __device__ void compute_qpack_1rowblock(const Params &params, const int b
     Tensor tSrV_view             = smem_thr_copy_V.retile_D(tSrV);
     Tensor tSsV_pack_s2r         = smem_thr_copy_V_pack.partition_S(sVt_pack);
     Tensor tSrV_pack_s2r_view    = smem_thr_copy_V_pack.retile_D(tSrV_pack);
-
+ 
     // Advance gK
     cute::copy(gmem_tiled_copy_QKV, tKgK, tKsK);
     
@@ -914,7 +914,7 @@ inline __device__ void compute_qpack_1rowblock(const Params &params, const int b
     
     TensorParamsKC tScales_k_c, tZeros_k_c;
     TensorParamsVG tScales_v_c, tZeros_v_c;
-    TensorParamsG tScales_k_g, tZeros_k_g;
+    TensorParamsG  tScales_k_g, tZeros_k_g;
 
     if (Kernel_traits::quant_mode == 1) {
         quant::qpack_Kchannel_Vtensor<num_bits>(tSrK, tSrK_pack, tScales_k_c, tZeros_k_c, sReduce_tmp, num_params);
@@ -979,7 +979,6 @@ inline __device__ void compute_qpack_1rowblock(const Params &params, const int b
     cute::copy(gmem_tiled_copy_k_pack, tKsK_pack_s2g, tKgK_pack_s2g);
     __syncthreads();
     cute::copy(gmem_tiled_copy_v_pack, tVsV_pack_s2g, tVgV_pack_s2g);
-
     __syncthreads();
     // //////////////////////////////////////////////////////////////////////////////
     // // verify the quantize
@@ -1019,7 +1018,7 @@ inline __device__ void compute_qpack_1rowblock(const Params &params, const int b
     //    quant::dequant_Kchannel_Vtensor<num_bits>(tSrV_pack(_,_,i), tSrV_dequant(_,_,i), tScales_v_c(_,i), tZeros_v_c(_,i), num_params);
     // }
 
-    if (Kernel_traits::quant_mode == 1) {
+    // if (Kernel_traits::quant_mode == 1) {
         // CUTE_UNROLL
         // for (int i = 0; i < size<1>(tScales_k_h2_c); ++i) {
         //     CUTE_UNROLL
@@ -1033,7 +1032,7 @@ inline __device__ void compute_qpack_1rowblock(const Params &params, const int b
         // for (int i = 0; i < size<2>(tSrK_pack); ++i) {
         //     quant::dequant_Kchannel_Vtensor<num_bits>(tSrK_pack(_,_,i), tSrK_dequant(_,_,i), tScales_k_c(_,i), tZeros_k_c(_,i), num_params);
         // }
-    } else {
+    // } else {
         // CUTE_UNROLL
         // for (int j = 0; j < size<0>(tScales_k_h2_g); ++j) {
         //     tScales_k_h2_g(j) = gK_params(0  + 32*j + tidx/4, 0);
@@ -1043,11 +1042,11 @@ inline __device__ void compute_qpack_1rowblock(const Params &params, const int b
         // auto tScales_k_h1_g = cute::recast<__half>(tScales_k_h2_g);
         // auto tZeros_k_h1_g = cute::recast<__half>(tZeros_k_h2_g);
 
-        CUTE_UNROLL
-        for (int i = 0; i < size<2>(tSrK_pack); ++i) {
-            quant::dequantize_Ktensor(tSrK_pack, tSrK_dequant, tScales_k_h2_g, tZeros_k_h2_g, 4, group_size, i);
-        }
-    }
+        // CUTE_UNROLL
+    //     for (int i = 0; i < size<2>(tSrK_pack); ++i) {
+    //         quant::dequantize_Ktensor(tSrK_pack, tSrK_dequant, tScales_k_h2_g, tZeros_k_h2_g, 4, group_size, i);
+    //     }
+    // }
 
     // // //////////////////////////////////////////////////////////////////////////////
     #if DEBUG2
@@ -1132,10 +1131,10 @@ template<typename Kernel_traits, bool Is_causal, bool Is_local, bool Has_alibi, 
 inline __device__ void compute_attn_splitkv(const Params &params) {
     const int m_block = blockIdx.x;
     // The block index for the batch.
-    const int bidb = Split ? blockIdx.z / params.h : blockIdx.y;
+    const int bidb    = Split ? blockIdx.z / params.h : blockIdx.y;
     // The block index for the head.
-    const int bidh = Split ? blockIdx.z - bidb * params.h : blockIdx.z;
-    const int n_split_idx = Split ? blockIdx.y : 0;
+    const int bidh         = Split ? blockIdx.z - bidb * params.h : blockIdx.z;
+    const int n_split_idx  = Split ? blockIdx.y : 0;
     const int num_n_splits = Split ? gridDim.y : 1;
     flash::compute_attn_1rowblock_splitkv<Kernel_traits, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Split, Append_KV, Paged_KV>(params, bidb, bidh, m_block, n_split_idx, num_n_splits);
 }

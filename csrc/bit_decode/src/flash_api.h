@@ -88,19 +88,19 @@ void set_params_fprop(Flash_fwd_params &params,
     params.o_head_stride = out.stride(-2);
 
     if (cu_seqlens_q_d == nullptr) {
-    params.q_batch_stride = q.stride(0);
-    // params.k_batch_stride = k.stride(0);
-    params.K_pack_batch_stride = k_pack.stride(0);
-    params.k_params_batch_stride = k_params.stride(0);
-    // params.v_batch_stride = v.stride(0);
-    params.v_pack_batch_stride = v_pack.stride(0);
-    params.v_params_batch_stride = v_params.stride(0);
-    params.o_batch_stride = out.stride(0);
+        params.q_batch_stride = q.stride(0);
+        // params.k_batch_stride = k.stride(0);
+        params.K_pack_batch_stride = k_pack.stride(0);
+        params.k_params_batch_stride = k_params.stride(0);
+        // params.v_batch_stride = v.stride(0);
+        params.v_pack_batch_stride = v_pack.stride(0);
+        params.v_params_batch_stride = v_params.stride(0);
+        params.o_batch_stride = out.stride(0);
 
-    if (seqlenq_ngroups_swapped) {
-    params.q_batch_stride *= seqlen_q;
-    params.o_batch_stride *= seqlen_q;
-    }
+        if (seqlenq_ngroups_swapped) {
+            params.q_batch_stride *= seqlen_q;
+            params.o_batch_stride *= seqlen_q;
+        }
     }
 
     params.cu_seqlens_q = static_cast<int *>(cu_seqlens_q_d);
@@ -130,14 +130,14 @@ void set_params_fprop(Flash_fwd_params &params,
     TORCH_CHECK(softcap <= 0.0, "This flash attention build does not support softcap.");
     #endif
     if (softcap > 0.0) {
-    params.softcap = softmax_scale / softcap;
-    params.scale_softmax = softcap;
-    params.scale_softmax_log2 = softcap * M_LOG2E;
+        params.softcap = softmax_scale / softcap;
+        params.scale_softmax = softcap;
+        params.scale_softmax_log2 = softcap * M_LOG2E;
     } else{
-    // Remove potential NaN
-    params.softcap = 0.0;
-    params.scale_softmax = softmax_scale;
-    params.scale_softmax_log2 = softmax_scale * M_LOG2E;
+        // Remove potential NaN
+        params.softcap = 0.0;
+        params.scale_softmax = softmax_scale;
+        params.scale_softmax_log2 = softmax_scale * M_LOG2E;
     }
 
     // Set this to probability of keeping an element to simplify things.
@@ -337,7 +337,7 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
     const auto sizes = q.sizes();
 
     const int batch_size = sizes[0];
-    int seqlen_q = sizes[1];
+    int seqlen_q  = sizes[1];
     int num_heads = sizes[2];
     const int head_size_og = sizes[3]; // dim
 
@@ -456,7 +456,8 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
     const at::Tensor v, at::Tensor v_pack, at::Tensor v_params,
     void *cu_seqlens_k_d,
     const std::string quant_mode,
-    const int group_size
+    const int group_size,
+    bool page_kv
     ) {
 
     // Reset the parameters
@@ -489,12 +490,12 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
     params.v_pack_head_stride = v_pack.stride(-2);
     params.v_params_head_stride = v_params.stride(-2);
 
-    // params.k_batch_stride = k.stride(0);
-    params.k_batch_stride = seqlen_k * k.size(-2) * k.size(-1);
+    if (page_kv) params.k_batch_stride = k.stride(0);
+    else params.k_batch_stride = seqlen_k * k.size(-2) * k.size(-1);
     params.K_pack_batch_stride = k_pack.stride(0);
     params.k_params_batch_stride = k_params.stride(0);
-    // params.v_batch_stride = v.stride(0);
-    params.v_batch_stride = seqlen_k * v.size(-2) * v.size(-1);
+    if (page_kv) params.v_batch_stride = v.stride(0);
+    else params.v_batch_stride = seqlen_k * v.size(-2) * v.size(-1);
     params.v_pack_batch_stride = v_pack.stride(0);
     params.v_params_batch_stride = v_params.stride(0);
 
@@ -583,7 +584,8 @@ void kvcache_qpack(const at::Tensor &k,
                            v, v_pack, v_params,
                            /*cu_seqlens_k_d=*/nullptr,
                            quant_mode,
-                           group_size
+                           group_size,
+                           paged_KV
                            );
 
     if (paged_KV) {

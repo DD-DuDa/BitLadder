@@ -27,10 +27,7 @@ python setup.py install
 1. See benchmark/bench_single_decode.ipynb
 2. (Optional) Play with libtorch c++      
     ```
-    cd libs/
-    wget https://download.pytorch.org/libtorch /cu124/libtorch-shared-with-deps-2.5.1%2Bcu124.zip
-    unzip libtorch-shared-with-deps-2.5.1+cu124.zip
-    rm libtorch-shared-with-deps-2.5.1+cu124.zip
+    # download libtorch 
 
     cd BitDecoding/csrc/bit_decode
     mkdir build && cd build

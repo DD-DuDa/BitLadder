@@ -59,8 +59,6 @@ void TestDecodingKernelCorrectness(int seqlen_kv, const std::string& quant_mode,
         group_size
     );
 
-    at::Tensor K_new_host, V_new_host, K_new_device, V_new_device, seqlens_k;
-
     // mha_fwd_kvcache
     const float sm_scale = 1 / std::sqrt(float(head_dim));
     auto out = mha_fwd_kvcache<num_bits>(Q_device, 

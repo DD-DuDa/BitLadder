@@ -60,9 +60,6 @@ DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_splitkv_combine_kernel, int kBlockM, int L
     flash::combine_attn_seqk_parallel<Kernel_traits, kBlockM, Log_max_splits, Is_even_K>(params);
 }
 
-
-
-
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal>
 void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     constexpr size_t smem_size = Kernel_traits::kSmemSize;
@@ -118,7 +115,7 @@ void run_flash_splitkv_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     //         LOCAL_SWITCH((params.window_size_left >= 0 || params.window_size_right >= 0) && !Is_causal, Is_local, [&] {
                     BOOL_SWITCH(params.num_splits > 1, Split, [&] {
                         // BOOL_SWITCH(params.knew_ptr != nullptr, Append_KV, [&] {
-                            // BOOL_SWITCH(params.block_table != nullptr, Paged_KV, [&] {
+                            BOOL_SWITCH(params.block_table != nullptr, Paged_KV, [&] {
     //                     ALIBI_SWITCH(params.alibi_slopes_ptr != nullptr, Has_alibi, [&] {
     //                         SOFTCAP_SWITCH(params.softcap > 0.0, Is_softcap, [&] {
                                 // If Append_KV, then we must have seqlen_offsets, which means cu_seqlens_k != nullptr.
@@ -131,7 +128,7 @@ void run_flash_splitkv_fwd(Flash_fwd_params &params, cudaStream_t stream) {
                                 // Append_KV: 
                                 // Has_alibi: 0
                                 // Is_softcap: 0
-                                auto kernel = &flash_fwd_splitkv_kernel<Kernel_traits, Is_causal, false, false, false, true, false, Split, false, false>;
+                                auto kernel = &flash_fwd_splitkv_kernel<Kernel_traits, Is_causal, false, false, false, true, false, Split, false, Paged_KV>;
                                 // auto kernel = &flash_fwd_splitkv_kernel<Kernel_traits, Is_causal, false, true, Split, Append_KV>;
                                 // auto kernel = &flash_fwd_splitkv_kernel<Kernel_traits, Is_causal, false, IsEvenKConst>;
                                 if (smem_size >= 48 * 1024) {
@@ -141,7 +138,7 @@ void run_flash_splitkv_fwd(Flash_fwd_params &params, cudaStream_t stream) {
                                 kernel<<<grid, Kernel_traits::kNThreads, smem_size, stream>>>(params);
                                 C10_CUDA_KERNEL_LAUNCH_CHECK();
     //                         });
-                            // });
+                            });
                         // });
                     });
     //         });
