@@ -37,9 +37,10 @@ python setup.py install
 
 ## Release Progress
 
-- [ ] Page Implementation
-- [ ] Hopper Implementation
+- [x] Page Implementation
 - [ ] End-2-end LLMs Inference
+- [ ] Hopper Implementation
+
 
 ## Citation
 If you find BitDecoding useful or want to use in your projects, please kindly cite our paper:
