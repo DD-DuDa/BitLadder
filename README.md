@@ -20,26 +20,16 @@ git clone --recursive https://github.com/DD-DuDa/BitDecoding.git
 conda create -n bitdecode python=3.10
 conda activate bitdecode
 pip install -r requirements.txt
-python setup.py install
+bash install.sh
 ```
 
 ## Quick Start
-1. See benchmark/bench_single_decode.ipynb
-2. (Optional) Play with libtorch c++      
-    ```
-    # download libtorch 
+1. Run the GSM8K example
+   ```
+   cd evaluation
+   bash scripts/example.sh
+   ```
 
-    cd BitDecoding/csrc/bit_decode
-    mkdir build && cd build
-    cmake -DCMAKE_PREFIX_PATH=<libtorch_path> ..
-    make -j12
-    ```
-
-## Release Progress
-
-- [x] Page Implementation
-- [ ] End-2-end LLMs Inference
-- [ ] Hopper Implementation
 
 
 ## Citation
