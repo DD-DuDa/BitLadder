@@ -19,35 +19,35 @@
 #define CHECK_CONTIGUOUS(x) TORCH_CHECK(x.is_contiguous(), #x " must be contiguous")
 
 void set_params_fprop(Flash_fwd_params &params,
-    // sizes
-    const size_t b,
-    const size_t seqlen_q,
-    const size_t seqlen_k,
-    const size_t seqlen_q_rounded,
-    const size_t seqlen_k_rounded,
-    const size_t h,
-    const size_t h_k,
-    const size_t d,
-    const size_t d_rounded,
-    // device pointers
-    const at::Tensor q,
-    const at::Tensor k, const at::Tensor k_pack, const at::Tensor k_params,
-    const at::Tensor v, const at::Tensor v_pack, const at::Tensor v_params,
-    at::Tensor out,
-    void *cu_seqlens_q_d,
-    void *cu_seqlens_k_d,
-    void *seqused_k,
-    void *p_d,
-    void *softmax_lse_d,
-    float p_dropout,
-    float softmax_scale,
-    int window_size_left,
-    int window_size_right,
-    const float softcap,
-    const std::string quant_mode,
-    const int group_size,
-    bool seqlenq_ngroups_swapped=false,
-    const bool unpadded_lse=false) {
+                      // sizes
+                      const size_t b,
+                      const size_t seqlen_q,
+                      const size_t seqlen_k,
+                      const size_t seqlen_q_rounded,
+                      const size_t seqlen_k_rounded,
+                      const size_t h,
+                      const size_t h_k,
+                      const size_t d,
+                      const size_t d_rounded,
+                      // device pointers
+                      const at::Tensor q,
+                      const at::Tensor k, const at::Tensor k_pack, const at::Tensor k_params,
+                      const at::Tensor v, const at::Tensor v_pack, const at::Tensor v_params,
+                      at::Tensor out,
+                      void *cu_seqlens_q_d,
+                      void *cu_seqlens_k_d,
+                      void *seqused_k,
+                      void *p_d,
+                      void *softmax_lse_d,
+                      float p_dropout,
+                      float softmax_scale,
+                      int window_size_left,
+                      int window_size_right,
+                      const float softcap,
+                      const std::string quant_mode,
+                      const int group_size,
+                      bool seqlenq_ngroups_swapped=false,
+                      const bool unpadded_lse=false) {
 
     // Reset the parameters
     params = {};
@@ -180,6 +180,17 @@ void set_params_fprop(Flash_fwd_params &params,
 
 template<int num_bits>
 void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split_kernel=false) {
+    // FP16_SWITCH(!params.is_bf16, [&] {
+    //     HEADDIM_SWITCH(params.d, [&] {
+    //         BOOL_SWITCH(params.is_causal, Is_causal, [&] {
+    //             if (params.num_splits <= 1 && !force_split_kernel) {  // If we don't set it num_splits == 0
+    //                 run_mha_fwd_<elem_type, kHeadDim, Is_causal>(params, stream);
+    //             } else {
+    //                 run_mha_fwd_splitkv_dispatch<elem_type, kHeadDim, Is_causal>(params, stream);
+    //             }
+    //         });
+    //     });
+    // });
     if (params.num_splits <= 1 && !force_split_kernel) {  // If we don't set it num_splits == 0
         run_mha_fwd_<cutlass::half_t, 128, false>(params, stream);
     } else {
@@ -189,7 +200,7 @@ void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split
             } else if (params.group_size == 64) {
                 // run_mha_fwd_splitkv_dispatch<cutlass::half_t, 128, false, 1, num_bits, 64>(params, stream);
             } else if (params.group_size == 32) {
-                // run_mha_fwd_splitkv_dispatch<cutlass::half_t, 128, false, 1, num_bits, 32>(params, stream);
+                run_mha_fwd_splitkv_dispatch<cutlass::half_t, 128, false, 1, num_bits, 32>(params, stream);
             }
         } else {
             if (params.group_size == 128) {
@@ -206,20 +217,20 @@ void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split
 template <int num_bits>
 void run_kvcache_qpack(Flash_fwd_params &params, cudaStream_t stream) {
     if (params.quant_mode == "k-channel") {
-        if (params.group_size == 128) {
-            run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 128>(params, stream);
+        if (params.group_size == 32) {
+            run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 32>(params, stream);
         } else if (params.group_size == 64) {
             // run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 64>(params, stream);
-        } else if (params.group_size == 32) {
-            // run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 32>(params, stream);
+        } else if (params.group_size == 128) {
+            run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 128>(params, stream);
         }
     } else {
-        if (params.group_size == 128) {
-            // run_kvcache_qpack_<cutlass::half_t, 128, 0, num_bits, 128>(params, stream);
+        if (params.group_size == 32) {
+            // run_kvcache_qpack_<cutlass::half_t, 128, 0, num_bits, 32>(params, stream);
         } else if (params.group_size == 64) {
             // run_kvcache_qpack_<cutlass::half_t, 128, 0, num_bits, 64>(params, stream);
-        } else if (params.group_size == 32) {
-            // run_kvcache_qpack_<cutlass::half_t, 128, 0, num_bits, 32>(params, stream);
+        } else if (params.group_size == 128) {
+            // run_kvcache_qpack_<cutlass::half_t, 128, 0, num_bits, 128>(params, stream);
         }
     }
 }
@@ -273,8 +284,8 @@ void set_params_splitkv(Flash_fwd_params &params, const int batch_size,
 
     // This needs to match with run_mha_fwd_splitkv_dispatch
     // TODO
-    const int block_n = head_size <= 64 ? 256 : (head_size <= 128 ? 128 : 64);
-    // const int block_n = 256;
+    // const int block_n = head_size <= 64 ? 256 : (head_size <= 128 ? 128 : 64);
+    const int block_n = 256;
     const int num_n_blocks = (max_seqlen_k + block_n - 1) / block_n;
     // Technically kBlockM = 64 only for the splitKV kernels, not the standard kernel.
     // In any case we don't expect seqlen_q to be larger than 64 for inference.
@@ -287,6 +298,8 @@ void set_params_splitkv(Flash_fwd_params &params, const int batch_size,
             // printf("num_splits = %d\n", params.num_splits);
             // params.num_splits= 1;
         }
+        params.num_splits += 1;  // We need to add 1 for residual kernel.
+        // printf("num_splits = %d\n", params.num_splits);
         if (params.num_splits > 1) {
             at::Tensor softmax_lse_accum = torch::empty({params.num_splits, batch_size, num_heads, max_seqlen_q}, opts.dtype(at::kFloat));
             at::Tensor out_accum = torch::empty({params.num_splits, batch_size, num_heads, max_seqlen_q, head_size_rounded}, opts.dtype(at::kFloat));
@@ -298,16 +311,27 @@ void set_params_splitkv(Flash_fwd_params &params, const int batch_size,
 }
 
 template<int num_bits>
-at::Tensor
+std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor>
 mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x num_heads x head_size
+                // const at::Tensor &kcache,                       // batch_size_c x seqlen_k x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
                 const at::Tensor &k_pack,                       // batch_size_c x seqlen_k / 4 x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
                 const at::Tensor &k_params,                     // batch_size_c x num_groups x num_heads_k x head_size
+                // const at::Tensor &vcache,                       // batch_size_c x seqlen_k x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
                 const at::Tensor &v_pack,                       // batch_size_c x seqlen_k / 4 x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
                 const at::Tensor &v_params,                     // batch_size_c x num_groups x num_heads_k x head_size
+                c10::optional<const at::Tensor> &k_,            // batch_size x seqlen_knew x num_heads_k x head_size
+                c10::optional<const at::Tensor> &v_,            // batch_size x seqlen_knew x num_heads_k x head_size
+                c10::optional<const at::Tensor> &seqlens_k_,    // batch_size
+                at::Tensor &k_pack_new,    
+                at::Tensor &k_params_new,
+                at::Tensor &v_pack_new,
+                at::Tensor &v_params_new,
                 c10::optional<at::Tensor> &block_table_,        // batch_size x max_num_blocks_per_seq
                 const float softmax_scale=1.0,
                 const std::string quant_mode="k-tensor",
                 const int group_size=128,
+                const int residual_block_size=128,
+                const int new_lens=0,
                 bool is_causal=false,
                 int window_size_left=-1,
                 int window_size_right=-1,
@@ -322,7 +346,7 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
     bool is_sm90 = dprops->major == 9 && dprops->minor == 0;
     TORCH_CHECK(is_sm90 || is_sm8x, "FlashAttention only supports Ampere GPUs or newer.");
 
-    CHECK_DEVICE(q); CHECK_DEVICE(k_pack); CHECK_DEVICE(v_pack);
+    CHECK_DEVICE(q); // CHECK_DEVICE(kcache); CHECK_DEVICE(vcache);
 
     at::Tensor block_table;
     const bool paged_KV = block_table_.has_value();
@@ -337,7 +361,7 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
     const auto sizes = q.sizes();
 
     const int batch_size = sizes[0];
-    int seqlen_q  = sizes[1];
+    int seqlen_q = sizes[1];
     int num_heads = sizes[2];
     const int head_size_og = sizes[3]; // dim
 
@@ -413,7 +437,69 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
                      group_size
                      );
 
-    params.is_seqlens_k_cumulative = true;
+    at::Tensor k, v;
+    if (k_.has_value()) {
+        TORCH_CHECK(v_.has_value(), "If key is supplied, value must also be passed in");
+        TORCH_CHECK(seqlens_k_.has_value(), "If key is supplied, seqlens_k must also be passed in");
+
+        k = k_.value();
+        v = v_.value();
+        int seqlen_knew = k.size(1);
+        auto seqlens_k = seqlens_k_.value();
+
+        TORCH_CHECK(k.dtype() == q_dtype, "Key must have the same dtype as query");
+        TORCH_CHECK(v.dtype() == q_dtype, "Value must have the same dtype as query");
+        TORCH_CHECK(k.stride(-1) == 1, "Key tensor must have contiguous last dimension");
+        TORCH_CHECK(v.stride(-1) == 1, "Value tensor must have contiguous last dimension");
+        CHECK_SHAPE(k, batch_size, seqlen_knew, num_heads_k, head_size_og);
+        CHECK_SHAPE(v, batch_size, seqlen_knew, num_heads_k, head_size_og);
+        CHECK_DEVICE(k); CHECK_DEVICE(v);
+        TORCH_CHECK(seqlens_k.dtype() == torch::kInt32, "seqlens_k must have dtype int32");
+        CHECK_DEVICE(seqlens_k);
+        CHECK_CONTIGUOUS(seqlens_k);
+        CHECK_SHAPE(seqlens_k, batch_size);
+
+        params.new_lens          = new_lens;
+
+        params.seqlen_knew       = seqlen_knew;
+        params.knew_ptr          = k.data_ptr();
+        params.vnew_ptr          = v.data_ptr();
+        params.knew_batch_stride = k.stride(0);
+        params.vnew_batch_stride = v.stride(0);
+        params.knew_row_stride   = k.stride(-3);
+        params.vnew_row_stride   = v.stride(-3);
+        params.knew_head_stride  = k.stride(-2);
+        params.vnew_head_stride  = v.stride(-2);
+        params.cu_seqlens_k      = static_cast<int *>(seqlens_k.data_ptr());
+
+        const int pack_nums = 16 / num_bits;
+        
+        params.k_pack_new_ptr            = k_pack_new.data_ptr();
+        params.k_params_new_ptr          = k_params_new.data_ptr();
+        params.v_pack_new_ptr            = v_pack_new.data_ptr();
+        params.v_params_new_ptr          = v_params_new.data_ptr();
+
+        params.k_pack_new_batch_stride   = k_pack_new.stride(0);
+        params.k_params_new_batch_stride = k_params_new.stride(0);
+        params.v_pack_new_batch_stride   = v_pack_new.stride(0);
+        params.v_params_new_batch_stride = v_params_new.stride(0);
+
+        params.k_pack_new_row_stride     = k_pack_new.stride(-3);
+        params.k_params_new_row_stride   = k_params_new.stride(-3);
+        params.v_pack_new_row_stride     = v_pack_new.stride(-3);
+        params.v_params_new_row_stride   = v_params_new.stride(-1);
+
+        params.k_pack_new_head_stride    = k_pack_new.stride(-2);
+        params.k_params_new_head_stride  = k_params_new.stride(-2);
+        params.v_pack_new_head_stride    = v_pack_new.stride(-2);
+        params.v_params_new_head_stride  = v_params_new.stride(-2);
+
+        params.k_params_new_dim_stride   = k_params_new.stride(-1);
+        params.v_params_new_dim_stride   = v_params_new.stride(-3);
+
+    }
+
+    params.is_seqlens_k_cumulative = !(seqlens_k_.has_value());
     params.rotary_dim = 0;
 
     if (paged_KV) {
@@ -436,7 +522,7 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
         out = out.transpose(1, 2).reshape({batch_size, 1, num_heads_k * seqlen_q, head_size_og});
     }
 
-    return out;
+    return std::make_tuple(out, k_pack_new, k_params_new, v_pack_new, v_params_new);
 }
 
 
@@ -513,20 +599,19 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
     params.group_size = group_size;
 }
 
-
 template <int num_bits>
 void kvcache_qpack(const at::Tensor &k,  
-                    at::Tensor &k_pack,
-                    at::Tensor &k_params,
-                    const at::Tensor &v,  
-                    at::Tensor &v_pack,
-                    at::Tensor &v_params,
-                    c10::optional<at::Tensor> &block_table_,
-                    const at::Tensor &cu_seqlens_k, 
-                    const int max_seqlen_k,
-                    const std::string quant_mode,
-                    const int group_size
-                    ) {
+              at::Tensor &k_pack,
+              at::Tensor &k_params,
+              const at::Tensor &v,  
+              at::Tensor &v_pack,
+              at::Tensor &v_params,
+              c10::optional<at::Tensor> &block_table_,
+              const at::Tensor &cu_seqlens_k, 
+              const int max_seqlen_k,
+              const std::string quant_mode,
+              const int group_size
+             ) {
 
     auto k_dtype = k.dtype();
     TORCH_CHECK(k_dtype == torch::kFloat16 || k_dtype == torch::kBFloat16,

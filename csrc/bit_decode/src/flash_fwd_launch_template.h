@@ -47,6 +47,14 @@ DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_kernel, bool Is_dropout, bool Is_causal, b
     #endif
 }
 
+DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_residual_kernel, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Split, bool Append_KV, bool Paged_KV) {
+    #if defined(ARCH_SUPPORTS_FLASH)
+        flash::compute_attn_residualkv<Kernel_traits, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Split, Append_KV, Paged_KV>(params);
+    #else
+        FLASH_UNSUPPORTED_ARCH
+    #endif
+}
+
 DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_splitkv_kernel, bool Is_causal, bool Is_local, bool Has_alibi, bool Is_even_MN, bool Is_even_K, bool Is_softcap, bool Split, bool Append_KV, bool Paged_KV) {
     #if defined(ARCH_SUPPORTS_FLASH)
         flash::compute_attn_splitkv<Kernel_traits, Is_causal, Is_local, Has_alibi, Is_even_MN, Is_even_K, Is_softcap, Split, Append_KV, Paged_KV>(params);
@@ -62,92 +70,40 @@ DEFINE_FLASH_FORWARD_KERNEL(flash_fwd_splitkv_combine_kernel, int kBlockM, int L
 
 template<typename Kernel_traits, bool Is_dropout, bool Is_causal>
 void run_flash_fwd(Flash_fwd_params &params, cudaStream_t stream) {
-    constexpr size_t smem_size = Kernel_traits::kSmemSize;
-    // printf("smem_size = %d\n", smem_size);
 
-    // Work-around for gcc 7. It doesn't like nested BOOL_SWITCH.
-    // https://github.com/kokkos/kokkos-kernels/issues/349
-    // https://github.com/HazyResearch/flash-attention/issues/21
-
-    const int num_m_block = (params.seqlen_q + Kernel_traits::kBlockM - 1) / Kernel_traits::kBlockM;
-    dim3 grid(num_m_block, params.b, params.h);
-    const bool is_even_MN = params.cu_seqlens_q == nullptr && params.cu_seqlens_k == nullptr && params.seqlen_k % Kernel_traits::kBlockN == 0 && params.seqlen_q % Kernel_traits::kBlockM == 0;
-    const bool is_even_K = params.d == Kernel_traits::kHeadDim;
-    const bool return_softmax = params.p_ptr != nullptr;
-    // BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
-    //     EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
-
-            // Will only return softmax if dropout, to reduce compilation time.
-            // If not IsEvenKConst, we also set IsEvenMNConst to false to reduce number of templates.
-            // If return_softmax, set IsEvenMNConst to false to reduce number of templates
-            // If head dim > 128, set IsEvenMNConst to false to reduce number of templates
-            // If Is_local, set Is_causal to false
-            auto kernel = &flash_fwd_kernel<Kernel_traits, false, Is_causal, false, false, true, true, false, false>;
-            // auto kernel = &flash_fwd_kernel<Kernel_traits, false, false, false, IsEvenMNConst, IsEvenKConst>;
-            // printf("IsEvenMNConst = %d, IsEvenKConst = %d, Is_local = %d, Is_causal = %d, ReturnSoftmaxConst = %d, Is_dropout = %d\n", int(IsEvenMNConst), int(IsEvenKConst), int(Is_local), int(Is_causal), int(ReturnSoftmaxConst), int(Is_dropout));
-            // auto kernel = &flash_fwd_kernel<Kernel_traits, false, Is_causal, false, false, true, true, false, false>;
-            if (smem_size >= 48 * 1024) {
-                C10_CUDA_CHECK(cudaFuncSetAttribute(
-                    kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
-            }
-            // int ctas_per_sm;
-            // cudaError status_ = cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-            //     &ctas_per_sm, kernel, Kernel_traits::kNThreads, smem_size);
-            // printf("smem_size = %d, CTAs per SM = %d\n", int(smem_size), ctas_per_sm);
-            kernel<<<grid, Kernel_traits::kNThreads, smem_size, stream>>>(params);
-            C10_CUDA_KERNEL_LAUNCH_CHECK();
-    //     });
-    // });
 }
 
 template<typename Kernel_traits, bool Is_causal>
 void run_flash_splitkv_fwd(Flash_fwd_params &params, cudaStream_t stream) {
     static_assert(!Kernel_traits::Is_Q_in_regs, "SplitKV implementation does not support Is_Q_in_regs");
     static_assert(!Kernel_traits::Share_Q_K_smem, "SplitKV implementation does not support Share_Q_K_smem");
-    constexpr size_t smem_size = Kernel_traits::kSmemSize;
-    const int num_m_block = (params.seqlen_q + Kernel_traits::kBlockM - 1) / Kernel_traits::kBlockM;
-
-    dim3 grid(num_m_block, params.num_splits > 1 ? params.num_splits : params.b, params.num_splits > 1 ? params.b * params.h : params.h);
+    constexpr size_t smem_size     = Kernel_traits::kSmemSize;
+    constexpr size_t smem_size_res = Kernel_traits::kSmemSize_res;
+    const int num_m_block = (params.seqlen_q + Kernel_traits::kBlockM - 1) / Kernel_traits::kBlockM; 
+    const int num_splits_ = params.num_splits - 1;
+    
+    dim3 grid_res(num_m_block, params.b, params.h);
+    dim3 grid(num_m_block, num_splits_, params.b * params.h);
     const bool is_even_MN = params.cu_seqlens_q == nullptr && params.cu_seqlens_k == nullptr && params.seqlen_k % Kernel_traits::kBlockN == 0 && params.seqlen_q % Kernel_traits::kBlockM == 0;
     const bool is_even_K = params.d == Kernel_traits::kHeadDim;
-    // BOOL_SWITCH(is_even_MN, IsEvenMNConst, [&] {
-    //     EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
-    //         LOCAL_SWITCH((params.window_size_left >= 0 || params.window_size_right >= 0) && !Is_causal, Is_local, [&] {
-                    BOOL_SWITCH(params.num_splits > 1, Split, [&] {
-                        // BOOL_SWITCH(params.knew_ptr != nullptr, Append_KV, [&] {
-                            BOOL_SWITCH(params.block_table != nullptr, Paged_KV, [&] {
-    //                     ALIBI_SWITCH(params.alibi_slopes_ptr != nullptr, Has_alibi, [&] {
-    //                         SOFTCAP_SWITCH(params.softcap > 0.0, Is_softcap, [&] {
-                                // If Append_KV, then we must have seqlen_offsets, which means cu_seqlens_k != nullptr.
-                                // If not IsEvenKConst, we also set IsEvenMNConst to false to reduce number of templates.
-                                // If Is_local, set Is_causal to false
-                                // IsEvenMNConst: 0
-                                // IsEvenKConst: 1
-                                // Is_local: 0
-                                // Split: 1
-                                // Append_KV: 
-                                // Has_alibi: 0
-                                // Is_softcap: 0
-                                auto kernel = &flash_fwd_splitkv_kernel<Kernel_traits, Is_causal, false, false, false, true, false, Split, false, Paged_KV>;
-                                // auto kernel = &flash_fwd_splitkv_kernel<Kernel_traits, Is_causal, false, true, Split, Append_KV>;
-                                // auto kernel = &flash_fwd_splitkv_kernel<Kernel_traits, Is_causal, false, IsEvenKConst>;
-                                if (smem_size >= 48 * 1024) {
-                                    C10_CUDA_CHECK(cudaFuncSetAttribute(
-                                        kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
-                                }
-                                kernel<<<grid, Kernel_traits::kNThreads, smem_size, stream>>>(params);
-                                C10_CUDA_KERNEL_LAUNCH_CHECK();
-    //                         });
-                            });
-                        // });
-                    });
-    //         });
-    //     });
-    // });
+
+    auto kernel_res = &flash_fwd_residual_kernel<Kernel_traits, Is_causal, false, false, false, true, false, /*Split*/true, false, false>;
+    if (smem_size_res >= 48 * 1024) {
+        C10_CUDA_CHECK(cudaFuncSetAttribute(
+            kernel_res, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size_res));
+    }
+    kernel_res<<<grid_res, Kernel_traits::kNThreads, smem_size_res, stream>>>(params);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
+    auto kernel = &flash_fwd_splitkv_kernel<Kernel_traits, Is_causal, false, false, false, true, false, /*Split*/true, false, false>;
+    if (smem_size >= 48 * 1024) {
+        C10_CUDA_CHECK(cudaFuncSetAttribute(
+            kernel, cudaFuncAttributeMaxDynamicSharedMemorySize, smem_size));
+    }
+    kernel<<<grid, Kernel_traits::kNThreads, smem_size, stream>>>(params);
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+
     if (params.num_splits > 1) {
-        // We want kBlockM to be as small as possible for more parallelism.
-        // With 128 threads we can load 512 elements at a time, so if headdim is divisible by 128, kBlockM = 4.
-        // If headdim is divisible by 64, then we set kBlockM = 8, etc.
         constexpr static int kBlockM = Kernel_traits::kHeadDim % 128 == 0 ? 4 : (Kernel_traits::kHeadDim % 64 == 0 ? 8 : 16);
         dim3 grid_combine((params.b * params.h * params.seqlen_q + kBlockM - 1) / kBlockM);
         EVENK_SWITCH(is_even_K, IsEvenKConst, [&] {
