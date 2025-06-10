@@ -34,13 +34,7 @@ python setup.py install
     cmake -DCMAKE_PREFIX_PATH=<libtorch_path> ..
     make -j12
     ```
-
-## Release Progress
-
-- [x] Page Implementation
-- [ ] End-2-end LLMs Inference
-- [ ] Hopper Implementation
-
+3. End2end inference example, please see [e2e](https://github.com/DD-DuDa/BitDecoding/tree/e2e)
 
 ## Citation
 If you find BitDecoding useful or want to use in your projects, please kindly cite our paper:
