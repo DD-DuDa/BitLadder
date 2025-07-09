@@ -35,8 +35,9 @@ def main():
         pretrained_model_name_or_path=args.model_path,
         config=config,
         low_cpu_mem_usage=True,
-        torch_dtype=torch.float16
-    ).cuda()
+        torch_dtype=torch.float16,
+        device_map="auto"
+    )
 
     enc = AutoTokenizer.from_pretrained(
         args.model_path,

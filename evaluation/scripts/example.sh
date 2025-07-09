@@ -1,5 +1,5 @@
 python example.py \
-    --model_path meta-llama/Llama-3.1-8B-Instruct \
+    --model_path meta-llama/Llama-3.1-70B-Instruct \
     --max_length 131072 \
     --num_bits 4 \
     --quant_mode k-channel \
