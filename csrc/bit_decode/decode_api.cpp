@@ -202,7 +202,7 @@ void run_mha_fwd(Flash_fwd_params &params, cudaStream_t stream, bool force_split
             } else if (params.group_size == 64) {
                 // run_mha_fwd_splitkv_dispatch<cutlass::half_t, 128, false, 1, num_bits, 64>(params, stream);
             } else if (params.group_size == 32) {
-                // run_mha_fwd_splitkv_dispatch<cutlass::half_t, 128, false, 1, num_bits, 32>(params, stream);
+                run_mha_fwd_splitkv_dispatch<cutlass::half_t, 128, false, 1, num_bits, 32>(params, stream);
             }
         } else {
             if (params.group_size == 128) {
@@ -220,7 +220,7 @@ template <int num_bits>
 void run_kvcache_qpack(Flash_fwd_params &params, cudaStream_t stream) {
     if (params.quant_mode == "k-channel") {
         if (params.group_size == 32) {
-            // run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 32>(params, stream);
+            run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 32>(params, stream);
         } else if (params.group_size == 64) {
             // run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 64>(params, stream);
         } else if (params.group_size == 128) {

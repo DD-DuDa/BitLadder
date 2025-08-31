@@ -303,6 +303,7 @@ struct Flash_fwd_kernel_traits : public Base {
         array_aligned<ElementKVPack, cosize_v<SmemLayoutKSize>> smem_Kpack;
         array_aligned<ElementKVPack, cosize_v<SmemLayoutVSize>> smem_Vpack;
         array_aligned<Element, cosize_v<SmemLayoutAcc>> smem_acc;
+        array_aligned<__half2, cosize_v<SmemLayoutKParams>> smem_Kparams;
     };
     static constexpr int kSmemSize_res = int(sizeof(SharedStorage_residual));
 

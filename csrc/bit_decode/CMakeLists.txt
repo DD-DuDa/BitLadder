@@ -7,7 +7,7 @@ set(CMAKE_CUDA_STANDARD 17)
 set(CMAKE_CUDA_ARCHITECTURES 80)
 
 # set(INCLUDE_DIR ${PROJECT_SOURCE_DIR}/../../libs/cutlass/include)
-set(INCLUDE_DIR /home/ddy/Projects/BitAttn_v2/3rdparty/cutlass/include)
+set(INCLUDE_DIR /home/ddy/Projects/BitDecoding/libs/cutlass)
 
 # Enable ccache if available
 find_program(CCACHE_PROGRAM ccache)
