@@ -4,8 +4,16 @@ warnings.filterwarnings("ignore")
 import torch
 import random
 import argparse
+
+from bit_decode import DynamicCache, StaticCache, Cache
+import transformers.cache_utils
+transformers.cache_utils.DynamicCache = DynamicCache
+transformers.cache_utils.StaticCache = StaticCache
+transformers.cache_utils.Cache = Cache
+
 from llama import LlamaForCausalLM
-from transformers import LlamaConfig, AutoTokenizer
+from qwen3 import Qwen3ForCausalLM
+from transformers import LlamaConfig, Qwen3Config, AutoTokenizer
 from datasets import load_dataset
 
 def main():
@@ -23,21 +31,34 @@ def main():
     random.seed(0)
     torch.manual_seed(0)
 
-    config = LlamaConfig.from_pretrained(args.model_path)
+    if "Llama" in args.model_path:
+        config = LlamaConfig.from_pretrained(args.model_path)
+    elif "Qwen" in args.model_path:
+        config = Qwen3Config.from_pretrained(args.model_path)
 
+    config._attn_implementation = "flash_attention_2"
     config.attn_backend = args.attn_backend
     config.num_bits = args.num_bits
     config.quant_mode = args.quant_mode
     config.group_size = args.group_size
     config.residual_block_size = 128 if args.num_bits == 4 else 256
 
-    model = LlamaForCausalLM.from_pretrained(
-        pretrained_model_name_or_path=args.model_path,
-        config=config,
-        low_cpu_mem_usage=True,
-        torch_dtype=torch.float16,
-        device_map="auto"
-    )
+    if "Llama" in args.model_path:
+        model = LlamaForCausalLM.from_pretrained(
+            pretrained_model_name_or_path=args.model_path,
+            config=config,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16,
+            device_map="auto"
+        )
+    elif "Qwen" in args.model_path:
+        model = Qwen3ForCausalLM.from_pretrained(
+            pretrained_model_name_or_path=args.model_path,
+            config=config,
+            low_cpu_mem_usage=True,
+            torch_dtype=torch.float16,
+            device_map="auto"
+        )
 
     enc = AutoTokenizer.from_pretrained(
         args.model_path,
@@ -71,7 +92,7 @@ def main():
     )
     config_str = f"# prompt tokens: {inputs.input_ids.shape[1]}"
 
-    print(prompt + "\n" + "=" * 10 + f'\n{config_str}\n' + "=" * 10 + "\nOutput:")
+    # print(prompt + "\n" + "=" * 10 + f'\n{config_str}\n' + "=" * 10 + "\nOutput:")
     # print("\n" + "=" * 10 + f'\n{config_str}\n' + "=" * 10 + "\nOutput:")
     print(enc.decode(output[0].tolist()[inputs.input_ids.shape[1]:], skip_special_tokens=True))
 

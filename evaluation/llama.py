@@ -532,8 +532,15 @@ class LlamaFlashDecodingAttention(LlamaAttention):
         value_states = value_states.transpose(1, 2)
 
         if q_len == 1:
+            print("query_states1: ", query_states.shape)
+            print("key_states1: ", key_states.shape)
+            print("value_states1: ", value_states.shape)
+
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx)
 
+            print("query_states2: ", query_states.shape)
+            print("key_states2: ", key_states.shape)
+            print("value_states2: ", value_states.shape)
             attn_output = flash_attn_with_kvcache(
                 query_states,
                 key_states,
@@ -554,6 +561,7 @@ class LlamaFlashDecodingAttention(LlamaAttention):
                 is_causal=self.is_causal,
                 **kwargs,
             )
+
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
         attn_output = self.o_proj(attn_output)
 
