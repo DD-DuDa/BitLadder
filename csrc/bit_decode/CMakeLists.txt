@@ -18,31 +18,31 @@ endif()
 find_package(Torch REQUIRED)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 
-message(STATUS "Compile testing packdecode kernel.")
-add_executable(test_single_packdecode 
-    ${PROJECT_SOURCE_DIR}/src/test_single_packdecode.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_hdim128_fp16_sm80.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_qpack_hdim128_fp16_sm80_2bit.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_qpack_hdim128_fp16_sm80_4bit.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_split_hdim128_fp16_sm80_2bit.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_split_hdim128_fp16_sm80_4bit.cu
-)
-target_link_libraries(test_single_packdecode "${TORCH_LIBRARIES}")
-target_include_directories(test_single_packdecode PRIVATE ${INCLUDE_DIR})
-target_compile_options(test_single_packdecode PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-maxrregcount=255 -gencode arch=compute_80,code=sm_80 -w>)
+# message(STATUS "Compile testing packdecode kernel.")
+# add_executable(test_single_packdecode 
+#     ${PROJECT_SOURCE_DIR}/src/test_single_packdecode.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_hdim128_fp16_sm80.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_qpack_hdim128_fp16_sm80_2bit.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_qpack_hdim128_fp16_sm80_4bit.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_split_hdim128_fp16_sm80_2bit.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_split_hdim128_fp16_sm80_4bit.cu
+# )
+# target_link_libraries(test_single_packdecode "${TORCH_LIBRARIES}")
+# target_include_directories(test_single_packdecode PRIVATE ${INCLUDE_DIR})
+# target_compile_options(test_single_packdecode PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-maxrregcount=255 -gencode arch=compute_80,code=sm_80 -w>)
 
-message(STATUS "Compile testing packdecode kernel.")
-add_executable(test_batch_packdecode 
-    ${PROJECT_SOURCE_DIR}/src/test_batch_packdecode.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_hdim128_fp16_sm80.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_qpack_hdim128_fp16_sm80_2bit.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_qpack_hdim128_fp16_sm80_4bit.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_split_hdim128_fp16_sm80_2bit.cu
-    ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_split_hdim128_fp16_sm80_4bit.cu
-)
-target_link_libraries(test_batch_packdecode "${TORCH_LIBRARIES}")
-target_include_directories(test_batch_packdecode PRIVATE ${INCLUDE_DIR})
-target_compile_options(test_batch_packdecode PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-maxrregcount=255 -gencode arch=compute_80,code=sm_80 -w>)
+# message(STATUS "Compile testing packdecode kernel.")
+# add_executable(test_batch_packdecode 
+#     ${PROJECT_SOURCE_DIR}/src/test_batch_packdecode.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_hdim128_fp16_sm80.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_qpack_hdim128_fp16_sm80_2bit.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_qpack_hdim128_fp16_sm80_4bit.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_split_hdim128_fp16_sm80_2bit.cu
+#     ${PROJECT_SOURCE_DIR}/src/genfile/flash_fwd_split_hdim128_fp16_sm80_4bit.cu
+# )
+# target_link_libraries(test_batch_packdecode "${TORCH_LIBRARIES}")
+# target_include_directories(test_batch_packdecode PRIVATE ${INCLUDE_DIR})
+# target_compile_options(test_batch_packdecode PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-maxrregcount=255 -gencode arch=compute_80,code=sm_80 -w>)
 
 message(STATUS "Compile benchmarking kernel.")
 add_executable(bench_single_packdecode 

@@ -4,10 +4,10 @@
 
 #include "../flash_fwd_launch_template.h"
 
-template<>
-void run_kvcache_qpack_<cutlass::half_t, 128, 1, 4, 32>(Flash_fwd_params &params, cudaStream_t stream) {
-    run_kvcache_qpack_hdim128<cutlass::half_t, 1, 4, 32>(params, stream);
-}
+// template<>
+// void run_kvcache_qpack_<cutlass::half_t, 128, 1, 4, 32>(Flash_fwd_params &params, cudaStream_t stream) {
+//     run_kvcache_qpack_hdim128<cutlass::half_t, 1, 4, 32>(params, stream);
+// }
 // template<>
 // void run_kvcache_qpack_<cutlass::half_t, 128, 1, 4, 64>(Flash_fwd_params &params, cudaStream_t stream) {
 //     run_kvcache_qpack_hdim128<cutlass::half_t, 1, 4, 64>(params, stream);

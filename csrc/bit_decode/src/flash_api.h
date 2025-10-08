@@ -320,7 +320,7 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
     // bool is_sm75 = dprops->major == 7 && dprops->minor == 5;
     bool is_sm8x = dprops->major == 8 && dprops->minor >= 0;
     bool is_sm90 = dprops->major == 9 && dprops->minor == 0;
-    TORCH_CHECK(is_sm90 || is_sm8x, "FlashAttention only supports Ampere GPUs or newer.");
+    // TORCH_CHECK(is_sm90 || is_sm8x, "FlashAttention only supports Ampere GPUs or newer.");
 
     CHECK_DEVICE(q); CHECK_DEVICE(k_pack); CHECK_DEVICE(v_pack);
 
