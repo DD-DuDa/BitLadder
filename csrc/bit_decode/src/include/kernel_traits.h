@@ -13,7 +13,7 @@
 #include "blockscaled_layout.h"
 #include "cutlass/gemm/collective/collective_builder.hpp"
 
-#define DEBUG 1
+#define DEBUG 0
 #define DEBUG1 0
 #define DEBUG2 0
 
@@ -62,6 +62,7 @@ struct Flash_fwd_kernel_traits : public Base {
     using Element = cutlass::float_e2m1_t;
     using ElementSF = cutlass::float_ue4m3_t;
     using ElementKVPack = cute::uint16_t;
+    using ElementFP16 = cute::half_t;
     using ElementAccum = float;
     using ElementOut = float;
     using index_t      = typename Base::index_t;
@@ -69,6 +70,9 @@ struct Flash_fwd_kernel_traits : public Base {
     using SmemCopyAtomQ = Copy_Atom<SM75_U32x4_LDSM_N, Element>;
     using SmemCopyAtomK = Copy_Atom<SM75_U32x2_LDSM_N, Element>;
     using SmemCopyAtomSF = Copy_Atom<UniversalCopy<ElementSF>, ElementSF>;
+    using SmemCopyAtomV = Copy_Atom<SM75_U32x2_LDSM_N, Element>;
+
+
     using SmemCopyAtomTransposed = typename Base::SmemCopyAtomTransposed;
     
 
@@ -121,7 +125,7 @@ struct Flash_fwd_kernel_traits : public Base {
 
     static constexpr int num_params = kBlockN_pack / group_size; // TODO: check 128
 
-    static constexpr auto SFVectorSize = 32;
+    static constexpr auto SFVectorSize = 16;
     //
     // Tiled MMA
     //
@@ -148,11 +152,36 @@ struct Flash_fwd_kernel_traits : public Base {
         AtomLayoutMNK{},
         Tile<Int<16>, Int<32>, _64>{}
     ));
+
+    using TiledMmaPV = decltype(cute::make_tiled_mma(
+        cute::rr_blockscaled_op_selector_sm120<Element,
+                                               Element,
+                                               ElementAccum,
+                                               ElementSF,
+                                               SFVectorSize,
+                                               false
+                                               >(),
+        AtomLayoutMNK{},
+        Tile<Int<16>, Int<32>, _64>{}
+    ));
     //
     // SF GMem Layout
     //
     using BlkScaledConfig = flash::BlockScaledConfig<SFVectorSize>;
     using LayoutSF = typename BlkScaledConfig::LayoutSF;
+
+    using LayoutP = decltype(
+        make_layout(
+            make_shape(make_shape(_8{}, _2{}, _2{}), _1{}, Int<kBlockN / 64>{}),
+            make_stride(make_stride(_1{}, _8{}, _16{}), _0{}, _32{})
+        )
+    );
+    using LayoutSFP = decltype(
+        make_layout(
+            make_shape(make_shape(_16{}, _4{}), _1{}, Int<kBlockN / 64>{}),
+            make_stride(make_stride(_0{}, _1{}), _0{}, _4{})
+        )
+    );
 
     //
     // Shared memory layout
@@ -180,6 +209,30 @@ struct Flash_fwd_kernel_traits : public Base {
         stride(SmemLayoutAtomSFK{})
     ));
 
+
+    // V
+    using SmemLayoutAtomV = decltype(cutlass::gemm::collective::detail::sm120_rr_smem_selector<Element, decltype(size<2>(TileShape_MNK{}))>());
+    using SmemLayoutV =
+        decltype(tile_to_shape(SmemLayoutAtomV{},
+                 make_shape(shape<1>(TileShape_MNK{}), shape<2>(TileShape_MNK{}))));
+
+    using SmemLayoutAtomSFV = decltype(BlkScaledConfig::deduce_smem_layoutSFKV(TiledMmaPV{}, TileShape_MNK{}));
+    using SmemLayoutSFV = decltype(make_layout(
+        shape(SmemLayoutAtomSFV{}),
+        stride(SmemLayoutAtomSFV{})
+    ));
+
+    using SmemLayoutAtomVt = decltype(cutlass::gemm::collective::detail::sm120_rr_smem_selector<Element, decltype(size<1>(TileShape_MNK{}))>());
+    using SmemLayoutVt =
+        decltype(tile_to_shape(SmemLayoutAtomVt{},
+                 make_shape(shape<2>(TileShape_MNK{}), shape<1>(TileShape_MNK{}))));
+    
+    using SmemLayoutAtomSFVt = decltype(BlkScaledConfig::deduce_smem_layoutSFVt(TiledMmaPV{}, Shape<Int<kBlockM>, Int<kHeadDim>, Int<kBlockN>>{}));
+    using SmemLayoutSFVt = decltype(make_layout(
+        shape(SmemLayoutAtomSFVt{}),
+        stride(SmemLayoutAtomSFVt{})
+    ));
+
     // acc
     using SmemLayoutAtomACC = decltype(composition(
         Swizzle<3, 3, 3>{}, make_layout(make_shape(Int<kBlockM>{}, Int<kBlockN>{}),
@@ -193,7 +246,7 @@ struct Flash_fwd_kernel_traits : public Base {
     using SmemLayoutAcc_residual = decltype(
         make_layout(make_shape(Int<kBlockM>{}, Int<kBlockN_residual>{}),
                     make_stride(Int<kBlockN_residual>{}, Int<1>{})));
-    using R2SCopyAtomAcc = Copy_Atom<UniversalCopy<int>, Element>;
+    using R2SCopyAtomAcc = Copy_Atom<UniversalCopy<int>, ElementFP16>;
 
     // O
     using SmemLayoutAtomO = decltype(
@@ -219,6 +272,10 @@ struct Flash_fwd_kernel_traits : public Base {
         array_aligned<ElementSF, cosize_v<SmemLayoutSFQ>> smem_SFQ;
         array_aligned<Element, cosize_v<SmemLayoutK>> smem_K;
         array_aligned<ElementSF, cosize_v<SmemLayoutSFK>> smem_SFK;
+        array_aligned<Element, cosize_v<SmemLayoutV>> smem_V;
+        array_aligned<ElementSF, cosize_v<SmemLayoutSFV>> smem_SFV;
+        array_aligned<ElementFP16, cosize_v<SmemLayoutAcc>> smem_acc;
+
     };
     static constexpr int kSmemSize = int(sizeof(SharedStorage));
 
@@ -235,13 +292,14 @@ struct Flash_fwd_kernel_traits : public Base {
 
     using Gmem_copy_struct = std::conditional_t<
         Has_cp_async,
-        SM80_CP_ASYNC_CACHEALWAYS<cute::uint64_t>,
+        SM80_CP_ASYNC_CACHEGLOBAL<cute::uint128_t>,
         DefaultCopy
     >;
     using GmemTiledCopyQKV = decltype(
         make_tiled_copy(Copy_Atom<Gmem_copy_struct, Element>{},
-                        GmemLayoutAtom{},
-                        Layout<Shape<_1, _16>>{}));  // Val layout, 8 vals per read
+                        Layout<Shape <Int<32>, Int<4>>,
+                        Stride<Int<32>, _1>>{},
+                        Layout<Shape<_1, _32>>{}));  // Val layout, 8 vals per read
 
     using GmemTiledCopySF = decltype(
         make_tiled_copy(Copy_Atom<DefaultCopy, ElementSF>{},

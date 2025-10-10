@@ -15,45 +15,30 @@ double TestDecodingKernelPerformance(int seqlen_kv, const std::string& quant_mod
     torch::Tensor K_host = torch::ones({bs, seqlen_kv, num_heads_kv, head_dim / pack_nums}, torch::dtype(torch::kUInt8));
     torch::Tensor K_scale_host = torch::ones({bs, seqlen_kv, num_heads_kv, head_dim / 16}, torch::dtype(torch::kFloat8_e4m3fn));
 
-    torch::Tensor V_host = torch::ones({bs, seqlen_kv, num_heads_kv, head_dim}, torch::dtype(torch::kHalf));
+    torch::Tensor V_host = torch::ones({bs, seqlen_kv, num_heads_kv, head_dim / pack_nums}, torch::dtype(torch::kHalf));
+    torch::Tensor V_scale_host = torch::ones({bs, seqlen_kv, num_heads_kv, head_dim / 16}, torch::dtype(torch::kFloat8_e4m3fn));
 
     torch::Tensor Q_device = Q_host.to(torch::kCUDA);
     torch::Tensor Q_scale_device = Q_scale_host.to(torch::kCUDA);
     torch::Tensor K_device = K_host.to(torch::kCUDA);
     torch::Tensor K_scale_device = K_scale_host.to(torch::kCUDA);
     torch::Tensor V_device = V_host.to(torch::kCUDA);
-    
-    at::Tensor v_pack, v_params;
-    v_pack   = torch::empty({bs, seqlen_kv,   num_heads_kv, head_dim / pack_nums}, torch::dtype(torch::kUInt16)).to(torch::kCUDA);
-    v_params = torch::empty({bs, head_dim / group_size, num_heads_kv, seqlen_kv}, torch::dtype(torch::kFloat32)).to(torch::kCUDA);
-
-    // Convert K, V to unpadded format
-    torch::Tensor V_unpad = V_device.reshape({bs * seqlen_kv, num_heads_kv, head_dim});
+    torch::Tensor V_scale_device = V_scale_host.to(torch::kCUDA);
 
     auto cu_seqlens_k = torch::arange(0, (bs + 1) * seqlen_kv, seqlen_kv, torch::TensorOptions().dtype(torch::kInt32).device(torch::kCUDA));
     std::optional<at::Tensor> opt_block_table = std::nullopt;
 
-    // kvcache_qpack<num_bits>(
-    //     K_unpad, k_pack, k_params,
-    //     V_unpad, v_pack, v_params,
-    //     opt_block_table,
-    //     cu_seqlens_k,              
-    //     seqlen_kv,
-    //     quant_mode,
-    //     group_size
-    // );
-
 
     const float sm_scale = 1 / std::sqrt(float(head_dim));
     // Warm up
-    // for (int i = 0; i < 5; ++i)
-    //     mha_fwd_kvcache<num_bits>(Q_device, 
-    //                     k_pack, k_params,
-    //                     v_pack, v_params,
-    //                     opt_block_table,
-    //                     sm_scale, 
-    //                     quant_mode, 
-    //                     group_size);
+    for (int i = 0; i < 5; ++i)
+        mha_fwd_kvcache<num_bits>(Q_device, Q_scale_device,
+                                  K_device, K_scale_device,
+                                  V_device, V_scale_device,
+                                  opt_block_table,
+                                  sm_scale, 
+                                  quant_mode, 
+                                  group_size);
 
     // Benchmark
     cudaEvent_t start, end;
@@ -63,7 +48,7 @@ double TestDecodingKernelPerformance(int seqlen_kv, const std::string& quant_mod
     for (int i = 0; i < repeat; i++) {
         mha_fwd_kvcache<num_bits>(Q_device, Q_scale_device,
                                   K_device, K_scale_device,
-                                  v_pack, v_params,
+                                  V_device, V_scale_device,
                                   opt_block_table,
                                   sm_scale, 
                                   quant_mode, 
@@ -81,7 +66,7 @@ double TestDecodingKernelPerformance(int seqlen_kv, const std::string& quant_mod
 
 int main() {
     const int num_heads    = 128;
-    const int num_heads_kv = 32;
+    const int num_heads_kv = 128;
     const int head_dim     = 128;
     
     const std::string quant_mode = "k-channel";
@@ -95,11 +80,11 @@ int main() {
         len_list[i] = len_list[i - 1] * 2;
     }
 
-    const int outer_repeat = 1, inner_repeat = 1;
+    const int outer_repeat = 3, inner_repeat = 3;
     printf("\n######## Benchmark single decode ########\n");
-    for (int j = 0; j < 1; j++) {
+    for (int j = 0; j < test_num; j++) {
 
-        int seqlen_kv = len_list[5];
+        int seqlen_kv = len_list[j];
         double max_msec = 0.0;
         double min_msec = DBL_MAX;
         double total_msec = 0.0;

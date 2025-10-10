@@ -32,7 +32,7 @@ void set_params_fprop(Flash_fwd_params &params,
     // device pointers
     const at::Tensor q, const at::Tensor sfq,
     const at::Tensor k, const at::Tensor k_pack, const at::Tensor sfk,
-    const at::Tensor v, const at::Tensor v_pack, const at::Tensor v_params,
+    const at::Tensor v, const at::Tensor v_pack, const at::Tensor sfv,
     at::Tensor out,
     void *cu_seqlens_q_d,
     void *cu_seqlens_k_d,
@@ -64,7 +64,7 @@ void set_params_fprop(Flash_fwd_params &params,
     params.sfk_ptr = sfk.data_ptr();
     // params.v_ptr = v.data_ptr();
     params.v_pack_ptr = v_pack.data_ptr();
-    params.v_params_ptr = v_params.data_ptr();
+    params.sfv_ptr = sfv.data_ptr();
     // All stride are in elements, not bytes.
     params.q_row_stride = q.stride(-3) * 2;
     params.sfq_row_stride = sfq.stride(-3);
@@ -72,11 +72,11 @@ void set_params_fprop(Flash_fwd_params &params,
     params.k_pack_row_stride = k_pack.stride(-3) * 2;
     params.sfk_row_stride = sfk.stride(-3);
     // params.v_row_stride = v.stride(-3);
-    params.v_pack_row_stride = v_pack.stride(-3);
-    params.v_params_row_stride = v_params.stride(-1);
+    params.v_pack_row_stride = v_pack.stride(-3) * 2;
+    params.sfv_row_stride = sfv.stride(-1);
 
     params.sfk_dim_stride = sfk.stride(-1);
-    params.v_params_dim_stride = v_params.stride(-3);
+    params.sfv_dim_stride = sfv.stride(-1);
 
     params.q_head_stride = q.stride(-2) * 2;
     params.sfq_head_stride = sfq.stride(-2);
@@ -84,8 +84,8 @@ void set_params_fprop(Flash_fwd_params &params,
     params.k_pack_head_stride = k_pack.stride(-2) * 2;
     params.sfk_head_stride = sfk.stride(-2);
     // params.v_head_stride = v.stride(-2);
-    params.v_pack_head_stride = v_pack.stride(-2);
-    params.v_params_head_stride = v_params.stride(-2);
+    params.v_pack_head_stride = v_pack.stride(-2) * 2;
+    params.sfv_head_stride = sfv.stride(-2);
 
     params.o_ptr = out.data_ptr();
     params.o_row_stride = out.stride(-3);
@@ -98,8 +98,8 @@ void set_params_fprop(Flash_fwd_params &params,
         params.k_pack_batch_stride = k_pack.stride(0) * 2;
         params.sfk_batch_stride = sfk.stride(0);
         // params.v_batch_stride = v.stride(0);
-        params.v_pack_batch_stride = v_pack.stride(0);
-        params.v_params_batch_stride = v_params.stride(0);
+        params.v_pack_batch_stride = v_pack.stride(0) * 2;
+        params.sfv_batch_stride = sfv.stride(0);
         params.o_batch_stride = out.stride(0);
 
         if (seqlenq_ngroups_swapped) {
@@ -309,7 +309,7 @@ mha_fwd_kvcache(at::Tensor &q,                                  // batch_size x 
                 const at::Tensor &k_pack,                       // batch_size_c x seqlen_k / 4 x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
                 const at::Tensor &sfk,                     // batch_size_c x num_groups x num_heads_k x head_size
                 const at::Tensor &v_pack,                       // batch_size_c x seqlen_k / 4 x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
-                const at::Tensor &v_params,                     // batch_size_c x num_groups x num_heads_k x head_size
+                const at::Tensor &sfv,                     // batch_size_c x num_groups x num_heads_k x head_size
                 c10::optional<at::Tensor> &block_table_,        // batch_size x max_num_blocks_per_seq
                 const float softmax_scale=1.0,
                 const std::string quant_mode="k-tensor",
@@ -403,7 +403,7 @@ mha_fwd_kvcache(at::Tensor &q,                                  // batch_size x 
                      unpacked_head_size, unpacked_head_size,
                      q_padded, sfq,
                      kcache_padded, k_pack, sfk,
-                     vcache_padded, v_pack, v_params,
+                     vcache_padded, v_pack, sfv,
                      out,
                      /*cu_seqlens_q_d=*/nullptr,
                      /*cu_seqlens_k_d=*/nullptr,
@@ -459,7 +459,7 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
     const size_t d,
     // device pointers
     const at::Tensor k, at::Tensor k_pack, at::Tensor sfk,
-    const at::Tensor v, at::Tensor v_pack, at::Tensor v_params,
+    const at::Tensor v, at::Tensor v_pack, at::Tensor sfv,
     void *cu_seqlens_k_d,
     const std::string quant_mode,
     const int group_size,
@@ -477,24 +477,24 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
     params.sfk_ptr = sfk.data_ptr();
     params.v_ptr = v.data_ptr();
     params.v_pack_ptr = v_pack.data_ptr();
-    params.v_params_ptr = v_params.data_ptr();
+    params.sfv_ptr = sfv.data_ptr();
     // All stride are in elements, not bytes.
     params.k_row_stride = k.stride(-3);
     params.k_pack_row_stride = k_pack.stride(-3);
     params.sfk_row_stride = sfk.stride(-3);
     params.v_row_stride = v.stride(-3);
     params.v_pack_row_stride = v_pack.stride(-3);
-    params.v_params_row_stride = v_params.stride(-1);
+    params.sfv_row_stride = sfv.stride(-1);
 
     params.sfk_dim_stride = sfk.stride(-1);
-    params.v_params_dim_stride = v_params.stride(-3);
+    params.sfv_dim_stride = sfv.stride(-1);
 
     params.k_head_stride = k.stride(-2);
     params.k_pack_head_stride = k_pack.stride(-2);
     params.sfk_head_stride = sfk.stride(-2);
     params.v_head_stride = v.stride(-2);
     params.v_pack_head_stride = v_pack.stride(-2);
-    params.v_params_head_stride = v_params.stride(-2);
+    params.sfv_head_stride = sfv.stride(-2);
 
     if (page_kv) params.k_batch_stride = k.stride(0);
     else params.k_batch_stride = seqlen_k * k.size(-2) * k.size(-1);
@@ -503,7 +503,7 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
     if (page_kv) params.v_batch_stride = v.stride(0);
     else params.v_batch_stride = seqlen_k * v.size(-2) * v.size(-1);
     params.v_pack_batch_stride = v_pack.stride(0);
-    params.v_params_batch_stride = v_params.stride(0);
+    params.sfv_batch_stride = sfv.stride(0);
 
     params.cu_seqlens_k = static_cast<int *>(cu_seqlens_k_d);
 

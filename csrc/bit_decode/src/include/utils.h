@@ -248,7 +248,7 @@ template<bool A_in_regs=false, bool B_in_regs=false,
          typename TiledCopyB,
          typename TiledCopyB_scale
         >
-__forceinline__ __device__ void gemm_scale(Tensor0 &acc, 
+__forceinline__ __device__ void gemm_qk_scale(Tensor0 &acc, 
                             Tensor1 &tCrA, Tensor1_scale &tCrA_scale,
                             Tensor2 &tCrB, Tensor2_scale &tCrB_scale,
                             Tensor3 &tCsA, Tensor3_copy &tCrA_copy_view,
@@ -264,11 +264,11 @@ __forceinline__ __device__ void gemm_scale(Tensor0 &acc,
 
     if (!A_in_regs) { 
         cute::copy(smem_tiled_copy_A, tCsA(_, _, _0{}), tCrA_copy_view(_, _, _0{})); 
-        cute::copy(smem_tiled_copy_A_scale, tCsA_scale(_, _, _0{}), tCrA_scale_copy_view(_, _, _0{})); 
+        // cute::copy(smem_tiled_copy_A_scale, tCsA_scale(_, _, _0{}), tCrA_scale_copy_view(_, _, _0{})); 
     }
     if (!B_in_regs) { 
         cute::copy(smem_tiled_copy_B, tCsB(_, _, _0{}), tCrB_copy_view(_, _, _0{}));
-        cute::copy(smem_tiled_copy_B_scale, tCsB_scale(_, _, _0{}), tCrB_scale_copy_view(_, _, _0{}));
+        // cute::copy(smem_tiled_copy_B_scale, tCsB_scale(_, _, _0{}), tCrB_scale_copy_view(_, _, _0{}));
     }
 
     #pragma unroll
@@ -276,11 +276,11 @@ __forceinline__ __device__ void gemm_scale(Tensor0 &acc,
         if (i < size<2>(tCrA) - 1) {
             if (!A_in_regs) { 
                 cute::copy(smem_tiled_copy_A, tCsA(_, _, i + 1), tCrA_copy_view(_, _, i + 1)); 
-                cute::copy(smem_tiled_copy_A_scale, tCsA_scale(_, _, i + 1), tCrA_scale_copy_view(_, _, i + 1)); 
+                // cute::copy(smem_tiled_copy_A_scale, tCsA_scale(_, _, i + 1), tCrA_scale_copy_view(_, _, i + 1)); 
             }
             if (!B_in_regs) { 
                 cute::copy(smem_tiled_copy_B, tCsB(_, _, i + 1), tCrB_copy_view(_, _, i + 1));
-                cute::copy(smem_tiled_copy_B_scale, tCsB_scale(_, _, i + 1), tCrB_scale_copy_view(_, _, i + 1));
+                // cute::copy(smem_tiled_copy_B_scale, tCsB_scale(_, _, i + 1), tCrB_scale_copy_view(_, _, i + 1));
             }
         }
         cute::gemm(tiled_mma, make_zip_tensor(tCrA(_, _, i), tCrA_scale(_, _, i)), make_zip_tensor(tCrB(_, _, i), tCrB_scale(_, _, i)), acc);
@@ -288,6 +288,38 @@ __forceinline__ __device__ void gemm_scale(Tensor0 &acc,
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+template<
+         typename Tensor0_acc, 
+         typename Tensor0,typename Tensor1, 
+         typename Tensor2, typename Tensor3, 
+         typename Tensor4, typename Tensor5, 
+         typename Tensor6, typename Tensor7,
+         typename TiledMma, typename TiledCopyB, typename TiledCopyB_scale>
+__forceinline__ __device__ void gemm_pv_scale(Tensor0_acc &acc,
+                                            Tensor0 &tOrP, Tensor1 &tOrSFP, 
+                                            Tensor2 &tOrVt, Tensor3 &tOrSFVt, 
+                                            Tensor4 &tOsVt, Tensor5 &tOrVt_copy_view,
+                                            Tensor6 &tOsSFVt, Tensor7 &tOrSFVt_copy_view,
+                                            TiledMma tiled_mma, 
+                                            TiledCopyB smem_tiled_copy_B,
+                                            TiledCopyB_scale smem_tiled_copy_B_scale) {
+
+    cute::copy(smem_tiled_copy_B, tOsVt(_, _, _0{}), tOrVt_copy_view(_, _, _0{}));
+    // cute::copy(smem_tiled_copy_B_scale, tOsSFVt(_, _, _0{}), tOrSFVt_copy_view(_, _, _0{}));
+
+    #pragma unroll
+    for (int i = 0; i < size<2>(tOrP); ++i) {
+        if (i < size<2>(tOrP) - 1) {
+            cute::copy(smem_tiled_copy_B, tOsVt(_, _, i + 1), tOrVt_copy_view(_, _, i + 1));
+            // cute::copy(smem_tiled_copy_B_scale, tOsSFVt(_, _, i + 1), tOrSFVt_copy_view(_, _, i + 1));
+        }
+        cute::gemm(tiled_mma, make_zip_tensor(tOrP(_, _, i), tOrSFP(_, _, i)), make_zip_tensor(tOrVt(_, _, i), tOrSFVt(_, _, i)), tOrP);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 template<bool A_in_regs=false, bool B_in_regs=false, 
          typename Tensor0, typename Tensor1,
@@ -363,28 +395,7 @@ __forceinline__ __device__ void gemm_residual(Tensor0 &acc, Tensor1 &tCrA, Tenso
     }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template<typename Tensor0, typename Tensor1, typename Tensor2, typename Tensor3,
-         typename TiledMma, typename TiledCopy, typename ThrCopy>
-__forceinline__ __device__ void gemm_rs(Tensor0 &acc, Tensor1 &tCrA, Tensor2 &tCrB, Tensor3 const& tCsB,
-                               TiledMma tiled_mma, TiledCopy smem_tiled_copy_B,
-                               ThrCopy smem_thr_copy_B) {
-    CUTE_STATIC_ASSERT_V(size<1>(tCrA) == size<1>(acc));                     // MMA_M
-    CUTE_STATIC_ASSERT_V(size<1>(tCrB) == size<2>(acc));                     // MMA_N
-    CUTE_STATIC_ASSERT_V(size<2>(tCrA) == size<2>(tCrB));                     // MMA_K
-    Tensor tCrB_copy_view = smem_thr_copy_B.retile_D(tCrB);
-    CUTE_STATIC_ASSERT_V(size<1>(tCsB) == size<1>(tCrB_copy_view));            // N
-    cute::copy(smem_tiled_copy_B, tCsB(_, _, _0{}), tCrB_copy_view(_, _, _0{}));
-
-    #pragma unroll
-    for (int i = 0; i < size<2>(tCrA); ++i) {
-        if (i < size<2>(tCrA) - 1) {
-            cute::copy(smem_tiled_copy_B, tCsB(_, _, i + 1), tCrB_copy_view(_, _, i + 1));
-        }
-        cute::gemm(tiled_mma, tCrA(_, _, i), tCrB(_, _, i), acc);
-    }
-}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
