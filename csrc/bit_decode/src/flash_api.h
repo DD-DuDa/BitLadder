@@ -30,8 +30,8 @@ void set_params_fprop(Flash_fwd_params &params,
     const size_t d,
     const size_t d_rounded,
     // device pointers
-    const at::Tensor q,
-    const at::Tensor k, const at::Tensor k_pack, const at::Tensor k_params,
+    const at::Tensor q, const at::Tensor sfq,
+    const at::Tensor k, const at::Tensor k_pack, const at::Tensor sfk,
     const at::Tensor v, const at::Tensor v_pack, const at::Tensor v_params,
     at::Tensor out,
     void *cu_seqlens_q_d,
@@ -57,28 +57,32 @@ void set_params_fprop(Flash_fwd_params &params,
     params.is_bf16 = q.dtype() == torch::kBFloat16;
 
     params.q_ptr = q.data_ptr();
+    params.sfq_ptr = sfq.data_ptr();
+
     // params.k_ptr = k.data_ptr();
-    params.K_pack_ptr = k_pack.data_ptr();
-    params.k_params_ptr = k_params.data_ptr();
+    params.k_pack_ptr = k_pack.data_ptr();
+    params.sfk_ptr = sfk.data_ptr();
     // params.v_ptr = v.data_ptr();
     params.v_pack_ptr = v_pack.data_ptr();
     params.v_params_ptr = v_params.data_ptr();
     // All stride are in elements, not bytes.
-    params.q_row_stride = q.stride(-3);
+    params.q_row_stride = q.stride(-3) * 2;
+    params.sfq_row_stride = sfq.stride(-3);
     // params.k_row_stride = k.stride(-3);
-    params.K_pack_row_stride = k_pack.stride(-3);
-    params.k_params_row_stride = k_params.stride(-3);
+    params.k_pack_row_stride = k_pack.stride(-3) * 2;
+    params.sfk_row_stride = sfk.stride(-3);
     // params.v_row_stride = v.stride(-3);
     params.v_pack_row_stride = v_pack.stride(-3);
     params.v_params_row_stride = v_params.stride(-1);
 
-    params.k_params_dim_stride = k_params.stride(-1);
+    params.sfk_dim_stride = sfk.stride(-1);
     params.v_params_dim_stride = v_params.stride(-3);
 
-    params.q_head_stride = q.stride(-2);
+    params.q_head_stride = q.stride(-2) * 2;
+    params.sfq_head_stride = sfq.stride(-2);
     // params.k_head_stride = k.stride(-2);
-    params.K_pack_head_stride = k_pack.stride(-2);
-    params.k_params_head_stride = k_params.stride(-2);
+    params.k_pack_head_stride = k_pack.stride(-2) * 2;
+    params.sfk_head_stride = sfk.stride(-2);
     // params.v_head_stride = v.stride(-2);
     params.v_pack_head_stride = v_pack.stride(-2);
     params.v_params_head_stride = v_params.stride(-2);
@@ -88,10 +92,11 @@ void set_params_fprop(Flash_fwd_params &params,
     params.o_head_stride = out.stride(-2);
 
     if (cu_seqlens_q_d == nullptr) {
-        params.q_batch_stride = q.stride(0);
+        params.q_batch_stride = q.stride(0) * 2;
+        params.sfq_batch_stride = sfq.stride(0);
         // params.k_batch_stride = k.stride(0);
-        params.K_pack_batch_stride = k_pack.stride(0);
-        params.k_params_batch_stride = k_params.stride(0);
+        params.k_pack_batch_stride = k_pack.stride(0) * 2;
+        params.sfk_batch_stride = sfk.stride(0);
         // params.v_batch_stride = v.stride(0);
         params.v_pack_batch_stride = v_pack.stride(0);
         params.v_params_batch_stride = v_params.stride(0);
@@ -207,7 +212,7 @@ template <int num_bits>
 void run_kvcache_qpack(Flash_fwd_params &params, cudaStream_t stream) {
     if (params.quant_mode == "k-channel") {
         if (params.group_size == 128) {
-            run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 128>(params, stream);
+            // run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 128>(params, stream);
         } else if (params.group_size == 64) {
             // run_kvcache_qpack_<cutlass::half_t, 128, 1, num_bits, 64>(params, stream);
         } else if (params.group_size == 32) {
@@ -299,9 +304,10 @@ void set_params_splitkv(Flash_fwd_params &params, const int batch_size,
 
 template<int num_bits>
 at::Tensor
-mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x num_heads x head_size
+mha_fwd_kvcache(at::Tensor &q,                                  // batch_size x seqlen_q x num_heads x head_size / 2
+                const at::Tensor &sfq,                          // batch_size x seqlen_q x num_heads x head_size / 16
                 const at::Tensor &k_pack,                       // batch_size_c x seqlen_k / 4 x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
-                const at::Tensor &k_params,                     // batch_size_c x num_groups x num_heads_k x head_size
+                const at::Tensor &sfk,                     // batch_size_c x num_groups x num_heads_k x head_size
                 const at::Tensor &v_pack,                       // batch_size_c x seqlen_k / 4 x num_heads_k x head_size or num_blocks x page_block_size x num_heads_k x head_size if there's a block_table.
                 const at::Tensor &v_params,                     // batch_size_c x num_groups x num_heads_k x head_size
                 c10::optional<at::Tensor> &block_table_,        // batch_size x max_num_blocks_per_seq
@@ -334,12 +340,14 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
     }
 
     auto q_dtype = q.dtype();
+    auto opts = q.options();
     const auto sizes = q.sizes();
 
     const int batch_size = sizes[0];
     int seqlen_q  = sizes[1];
     int num_heads = sizes[2];
     const int head_size_og = sizes[3]; // dim
+    const int unpacked_head_size = head_size_og * 2;
 
     const int max_num_blocks_per_seq = !paged_KV ? 0 : block_table.size(1);
     const int num_blocks             = !paged_KV ? 0 : v_pack.size(0);
@@ -371,8 +379,8 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
     at::Tensor q_padded, kcache_padded, vcache_padded;
     q_padded = q;
 
-    at::Tensor out;
-    out = torch::empty_like(q_padded);
+    auto dtype = at::ScalarType::Half;
+    at::Tensor out = torch::empty({batch_size, seqlen_q, num_heads, unpacked_head_size}, opts.dtype(dtype));
 
     auto round_multiple = [](int x, int m) { return (x + m - 1) / m * m; };
     const int head_size = round_multiple(head_size_og, 8);
@@ -384,8 +392,6 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
     // Cast to char to avoid compiler warning about narrowing
     at::cuda::CUDAGuard device_guard{(char)q.get_device()};
 
-    auto opts = q.options();
-
     auto softmax_lse = torch::empty({batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
 
     Flash_fwd_params params;
@@ -394,9 +400,9 @@ mha_fwd_kvcache(at::Tensor &q,                       // batch_size x seqlen_q x 
                      seqlen_q, seqlen_k,
                      seqlen_q_rounded, seqlen_k_rounded,
                      num_heads, num_heads_k,
-                     head_size, head_size_rounded,
-                     q_padded, 
-                     kcache_padded, k_pack, k_params,
+                     unpacked_head_size, unpacked_head_size,
+                     q_padded, sfq,
+                     kcache_padded, k_pack, sfk,
                      vcache_padded, v_pack, v_params,
                      out,
                      /*cu_seqlens_q_d=*/nullptr,
@@ -452,7 +458,7 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
     const size_t h, const size_t h_k,
     const size_t d,
     // device pointers
-    const at::Tensor k, at::Tensor k_pack, at::Tensor k_params,
+    const at::Tensor k, at::Tensor k_pack, at::Tensor sfk,
     const at::Tensor v, at::Tensor v_pack, at::Tensor v_params,
     void *cu_seqlens_k_d,
     const std::string quant_mode,
@@ -467,33 +473,33 @@ void set_params_fprop_qpack(Flash_fwd_params &params,
 
     // Set the pointers and strides.
     params.k_ptr = k.data_ptr();
-    params.K_pack_ptr = k_pack.data_ptr();
-    params.k_params_ptr = k_params.data_ptr();
+    params.k_pack_ptr = k_pack.data_ptr();
+    params.sfk_ptr = sfk.data_ptr();
     params.v_ptr = v.data_ptr();
     params.v_pack_ptr = v_pack.data_ptr();
     params.v_params_ptr = v_params.data_ptr();
     // All stride are in elements, not bytes.
     params.k_row_stride = k.stride(-3);
-    params.K_pack_row_stride = k_pack.stride(-3);
-    params.k_params_row_stride = k_params.stride(-3);
+    params.k_pack_row_stride = k_pack.stride(-3);
+    params.sfk_row_stride = sfk.stride(-3);
     params.v_row_stride = v.stride(-3);
     params.v_pack_row_stride = v_pack.stride(-3);
     params.v_params_row_stride = v_params.stride(-1);
 
-    params.k_params_dim_stride = k_params.stride(-1);
+    params.sfk_dim_stride = sfk.stride(-1);
     params.v_params_dim_stride = v_params.stride(-3);
 
     params.k_head_stride = k.stride(-2);
-    params.K_pack_head_stride = k_pack.stride(-2);
-    params.k_params_head_stride = k_params.stride(-2);
+    params.k_pack_head_stride = k_pack.stride(-2);
+    params.sfk_head_stride = sfk.stride(-2);
     params.v_head_stride = v.stride(-2);
     params.v_pack_head_stride = v_pack.stride(-2);
     params.v_params_head_stride = v_params.stride(-2);
 
     if (page_kv) params.k_batch_stride = k.stride(0);
     else params.k_batch_stride = seqlen_k * k.size(-2) * k.size(-1);
-    params.K_pack_batch_stride = k_pack.stride(0);
-    params.k_params_batch_stride = k_params.stride(0);
+    params.k_pack_batch_stride = k_pack.stride(0);
+    params.sfk_batch_stride = sfk.stride(0);
     if (page_kv) params.v_batch_stride = v.stride(0);
     else params.v_batch_stride = seqlen_k * v.size(-2) * v.size(-1);
     params.v_pack_batch_stride = v_pack.stride(0);

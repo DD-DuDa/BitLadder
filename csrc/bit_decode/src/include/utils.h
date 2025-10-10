@@ -234,55 +234,56 @@ __forceinline__ __device__ void gemm_Vtensor(Tensor0 &acc, Tensor1 &tCrA,
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-template<int num_bits,
-         bool A_in_regs=false, bool B_in_regs=false, 
-         typename Tensor0, typename Tensor1,
-         typename Tensor2_i4, typename Tensor2_dequant, 
-         typename Tensor2_scales, typename Tensor2_zeros, typename Tensor2_params,
-         typename Tensor3, 
-         typename Tensor4_i4, 
+template<bool A_in_regs=false, bool B_in_regs=false,
+         typename Tensor0, 
+         typename Tensor1, typename Tensor1_scale,
+         typename Tensor2, typename Tensor2_scale,
+         typename Tensor3, typename Tensor3_copy,
+         typename Tensor4, typename Tensor4_copy,
+         typename Tensor5, typename Tensor5_copy,
+         typename Tensor6, typename Tensor6_copy,
          typename TiledMma, 
          typename TiledCopyA, 
-         typename TiledCopyB_i4,
-         typename ThrCopyA, 
-         typename ThrCopyB_i4>
-__forceinline__ __device__ void gemm_Kchannel(Tensor0 &acc, Tensor1 &tCrA, 
-                            Tensor2_i4 &tCrB_i4, Tensor2_dequant &tCrB_dequant,  
-                            Tensor2_scales &tCrB_scales, Tensor2_zeros &tCrB_zeros, Tensor2_params &sK_params,
-                            Tensor3 const& tCsA, 
-                            Tensor4_i4 const& tCsB_i4,
+         typename TiledCopyA_scale,
+         typename TiledCopyB,
+         typename TiledCopyB_scale
+        >
+__forceinline__ __device__ void gemm_scale(Tensor0 &acc, 
+                            Tensor1 &tCrA, Tensor1_scale &tCrA_scale,
+                            Tensor2 &tCrB, Tensor2_scale &tCrB_scale,
+                            Tensor3 &tCsA, Tensor3_copy &tCrA_copy_view,
+                            Tensor4 &tCsA_scale, Tensor4_copy &tCrA_scale_copy_view,
+                            Tensor5 &tCsB, Tensor5_copy &tCrB_copy_view,
+                            Tensor6 &tCsB_scale, Tensor6_copy &tCrB_scale_copy_view,
                             TiledMma tiled_mma,
                             TiledCopyA smem_tiled_copy_A, 
-                            TiledCopyB_i4 smem_tiled_copy_B_i4,
-                            ThrCopyA smem_thr_copy_A, 
-                            ThrCopyB_i4 smem_thr_copy_B_i4,
-                            const int num_params) {
-    CUTE_STATIC_ASSERT_V(size<1>(tCrA) == size<1>(acc));                     // MMA_M
-    Tensor tCrA_copy_view = smem_thr_copy_A.retile_D(tCrA);
-    CUTE_STATIC_ASSERT_V(size<1>(tCsA) == size<1>(tCrA_copy_view));            // M
-    Tensor tCrB_i4_copy_view = smem_thr_copy_B_i4.retile_D(tCrB_i4);
+                            TiledCopyA_scale smem_tiled_copy_A_scale,
+                            TiledCopyB smem_tiled_copy_B,
+                            TiledCopyB_scale smem_tiled_copy_B_scale
+                            ) {
 
-    #pragma unroll
-    for (int i = 0; i < size<2>(tCrA); ++i) {
-        quant::load_params_Kchannel(tCrB_scales, tCrB_zeros, sK_params, threadIdx.x, i, num_params);
+    if (!A_in_regs) { 
+        cute::copy(smem_tiled_copy_A, tCsA(_, _, _0{}), tCrA_copy_view(_, _, _0{})); 
+        cute::copy(smem_tiled_copy_A_scale, tCsA_scale(_, _, _0{}), tCrA_scale_copy_view(_, _, _0{})); 
     }
-
-    if (!A_in_regs) { cute::copy(smem_tiled_copy_A, tCsA(_, _, _0{}), tCrA_copy_view(_, _, _0{})); }
     if (!B_in_regs) { 
-        cute::copy(smem_tiled_copy_B_i4, tCsB_i4(_, _, _0{}), tCrB_i4_copy_view(_, _, _0{}));
-        quant::dequant_Kchannel_Vtensor<num_bits>(tCrB_i4(_,_,_0{}), tCrB_dequant(_,_,_0{}), tCrB_scales(_,_,_0{}), tCrB_zeros(_,_,_0{}), num_params);
+        cute::copy(smem_tiled_copy_B, tCsB(_, _, _0{}), tCrB_copy_view(_, _, _0{}));
+        cute::copy(smem_tiled_copy_B_scale, tCsB_scale(_, _, _0{}), tCrB_scale_copy_view(_, _, _0{}));
     }
 
     #pragma unroll
     for (int i = 0; i < size<2>(tCrA); ++i) {
         if (i < size<2>(tCrA) - 1) {
-            if (!A_in_regs) { cute::copy(smem_tiled_copy_A, tCsA(_, _, i + 1), tCrA_copy_view(_, _, i + 1)); }
+            if (!A_in_regs) { 
+                cute::copy(smem_tiled_copy_A, tCsA(_, _, i + 1), tCrA_copy_view(_, _, i + 1)); 
+                cute::copy(smem_tiled_copy_A_scale, tCsA_scale(_, _, i + 1), tCrA_scale_copy_view(_, _, i + 1)); 
+            }
             if (!B_in_regs) { 
-                cute::copy(smem_tiled_copy_B_i4, tCsB_i4(_, _, i + 1), tCrB_i4_copy_view(_, _, i + 1));
-                quant::dequant_Kchannel_Vtensor<num_bits>(tCrB_i4(_, _, i + 1), tCrB_dequant(_, _, i + 1), tCrB_scales(_, _, i + 1), tCrB_zeros(_, _, i + 1), num_params);
+                cute::copy(smem_tiled_copy_B, tCsB(_, _, i + 1), tCrB_copy_view(_, _, i + 1));
+                cute::copy(smem_tiled_copy_B_scale, tCsB_scale(_, _, i + 1), tCrB_scale_copy_view(_, _, i + 1));
             }
         }
-        cute::gemm(tiled_mma, tCrA(_, _, i), tCrB_dequant(_, _, i), acc);
+        cute::gemm(tiled_mma, make_zip_tensor(tCrA(_, _, i), tCrA_scale(_, _, i)), make_zip_tensor(tCrB(_, _, i), tCrB_scale(_, _, i)), acc);
     }
 }
 

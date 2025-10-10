@@ -26,11 +26,12 @@ struct Qkv_params {
 
     // The QKV matrices.
     void *__restrict__ q_ptr;
+    void *__restrict__ sfq_ptr;
     void *__restrict__ k_ptr;
-    void *__restrict__ K_pack_ptr;
+    void *__restrict__ k_pack_ptr;
     void *__restrict__ k_pack_new_ptr;
     void *__restrict__ k_params_new_ptr;
-    void *__restrict__ k_params_ptr;
+    void *__restrict__ sfk_ptr;
     void *__restrict__ v_ptr;
     void *__restrict__ v_pack_ptr;
     void *__restrict__ v_pack_new_ptr;
@@ -39,11 +40,12 @@ struct Qkv_params {
 
     // The stride between rows of the Q, K and V matrices.
     index_t q_batch_stride;
+    index_t sfq_batch_stride;
 
     index_t k_batch_stride;
-    index_t K_pack_batch_stride;
+    index_t k_pack_batch_stride;
     index_t k_pack_new_batch_stride;
-    index_t k_params_batch_stride;
+    index_t sfk_batch_stride;
     index_t k_params_new_batch_stride;
 
     index_t v_batch_stride;
@@ -53,11 +55,12 @@ struct Qkv_params {
     index_t v_params_new_batch_stride;
 
     index_t q_row_stride;
+    index_t sfq_row_stride;
 
     index_t k_row_stride;
-    index_t K_pack_row_stride;
+    index_t k_pack_row_stride;
     index_t k_pack_new_row_stride;
-    index_t k_params_row_stride;
+    index_t sfk_row_stride;
     index_t k_params_new_row_stride;
 
     index_t v_row_stride;
@@ -67,11 +70,12 @@ struct Qkv_params {
     index_t v_params_new_row_stride;
 
     index_t q_head_stride;
+    index_t sfq_head_stride;
 
     index_t k_head_stride;
-    index_t K_pack_head_stride;
+    index_t k_pack_head_stride;
     index_t k_pack_new_head_stride;
-    index_t k_params_head_stride;
+    index_t sfk_head_stride;
     index_t k_params_new_head_stride;
 
     index_t v_head_stride;
@@ -80,7 +84,7 @@ struct Qkv_params {
     index_t v_params_head_stride;
     index_t v_params_new_head_stride;
 
-    index_t k_params_dim_stride;
+    index_t sfk_dim_stride;
     index_t k_params_new_dim_stride;
 
     index_t v_params_dim_stride;
