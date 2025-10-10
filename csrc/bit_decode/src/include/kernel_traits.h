@@ -298,7 +298,7 @@ struct Flash_fwd_kernel_traits : public Base {
     using GmemTiledCopyQKV = decltype(
         make_tiled_copy(Copy_Atom<Gmem_copy_struct, Element>{},
                         Layout<Shape <Int<32>, Int<4>>,
-                        Stride<Int<32>, _1>>{},
+                        Stride<Int<4>, _1>>{},
                         Layout<Shape<_1, _32>>{}));  // Val layout, 8 vals per read
 
     using GmemTiledCopySF = decltype(
